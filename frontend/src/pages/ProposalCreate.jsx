@@ -256,7 +256,7 @@ const ProposalCreate = () => {
             <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '1.4rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase', mb: '0.3rem' }}>
               CREATE PROPOSAL
             </Typography>
-            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.08em' }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em' }}>
               STEP {activeStep + 1} OF {STEPS.length} ── {STEPS[activeStep].toUpperCase()}
             </Typography>
           </Box>
@@ -310,8 +310,8 @@ const ProposalCreate = () => {
 
           {activeStep === 0 && (
             <Box>
-              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.12em', mb: '1.5rem' }}>
-                {'/* proposal details */'}
+              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.5rem' }}>
+                {'PROPOSAL DETAILS '}
               </Typography>
 
               <TerminalInput
@@ -458,7 +458,7 @@ const ProposalCreate = () => {
                         <Typography sx={{ fontFamily: monoFont, fontSize: '0.75rem', color: selected ? '#00f5d4' : '#64748b', mb: 0.25, letterSpacing: '0.06em' }}>
                           {selected ? '[▶]' : '[·]'} {label}
                         </Typography>
-                        <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#334155', letterSpacing: '0.03em' }}>
+                        <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.03em' }}>
                           {sub}
                         </Typography>
                       </Box>
@@ -652,7 +652,7 @@ const ProposalCreate = () => {
               fontSize: '0.65rem',
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
-              color: activeStep === 0 || loading ? '#334155' : '#64748b',
+              color: activeStep === 0 || loading ? '#334155' : '#ffffff',
               border: '1px solid',
               borderColor: activeStep === 0 || loading ? '#1e2a35' : '#2e3e4d',
               borderRadius: '2px',
@@ -749,10 +749,10 @@ const ProposalCreate = () => {
           )}
         </Box>
 
-        <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#1e2a35', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none', mt: '2rem' }}>
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#ffffff', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none', mt: '2rem' }}>
           {'─'.repeat(120)}
         </Box>
-        <Box sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#64748b', letterSpacing: '0.07em', mt: '0.5rem' }}>
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#ffffff', letterSpacing: '0.07em', mt: '0.5rem' }}>
           {'> step '}{activeStep + 1}{' of '}{STEPS.length}{' · system nominal'}
         </Box>
 

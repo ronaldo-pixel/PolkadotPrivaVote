@@ -83,7 +83,7 @@ const Navigation = () => {
               letterSpacing: '0.05em',
             }}
           >
-            //
+            
           </Typography>
           <Typography
             sx={{

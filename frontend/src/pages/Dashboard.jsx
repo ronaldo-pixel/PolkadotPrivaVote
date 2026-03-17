@@ -41,7 +41,7 @@ const StatBlock = ({ value, label, color = '#00f5d4', onClick }) => (
       fontFamily: monoFont,
       fontSize: '0.55rem',
       letterSpacing: '0.15em',
-      color: '#64748b',
+      color: '#ffffff',
       textTransform: 'uppercase',
       marginTop: '6px',
       display: 'block',
@@ -106,7 +106,7 @@ const Dashboard = () => {
         borderLeft: '2px solid rgba(0,245,212,0.12)',
       }}>
         <Box sx={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 2rem' }}>
-          <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.12em', mb: '1.75rem' }}>
+          <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
             {'> /dashboard'}
             <Box component="span" sx={{
               display: 'inline-block', width: '6px', height: '0.8em',
@@ -143,7 +143,7 @@ const Dashboard = () => {
     }}>
       <Container maxWidth="lg" sx={{ py: '2.5rem' }}>
 
-        <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.12em', mb: '1.75rem' }}>
+        <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
           {'> /dashboard'}
           <Box component="span" sx={{
             display: 'inline-block', width: '6px', height: '0.8em',
@@ -159,7 +159,7 @@ const Dashboard = () => {
               SYSTEM STATUS
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.08em' }}>
+              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em' }}>
                 $ {formatUtils.formatAddress(userAddress)}
               </Typography>
               {isKeyholder && (
@@ -256,7 +256,7 @@ const Dashboard = () => {
                 fontFamily: monoFont,
                 fontSize: '0.55rem',
                 letterSpacing: '0.15em',
-                color: '#64748b',
+                color: '#ffffff',
                 textTransform: 'uppercase',
                 mt: '6px',
                 display: 'block',
@@ -277,14 +277,14 @@ const Dashboard = () => {
           </Grid>
         </Grid>
 
-        <Box sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.08em', mb: '1rem' }}>
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em', mb: '1rem' }}>
           {'/* ── ELIGIBLE TO VOTE ── */'}
         </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '0.9rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             ELIGIBLE TO VOTE
-            <Box component="span" sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.08em', ml: 1.5, textTransform: 'none' }}>
+            <Box component="span" sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em', ml: 1.5, textTransform: 'none' }}>
               {userEligibleProposals.length} RESULT{userEligibleProposals.length !== 1 ? 'S' : ''}
             </Box>
           </Typography>
@@ -307,7 +307,7 @@ const Dashboard = () => {
             textAlign: 'center',
             mb: '2.5rem',
           }}>
-            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#64748b', letterSpacing: '0.06em' }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffffff', letterSpacing: '0.06em' }}>
               &gt; no active proposals available for voting
             </Typography>
           </Box>
@@ -315,7 +315,7 @@ const Dashboard = () => {
 
         {isKeyholder && (
           <>
-            <Box sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.08em', mb: '1rem' }}>
+            <Box sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em', mb: '1rem' }}>
               {'/* ── KEYHOLDER ── */'}
             </Box>
 
@@ -333,7 +333,7 @@ const Dashboard = () => {
                   <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '0.85rem', color: '#39ff14', letterSpacing: '0.08em', textTransform: 'uppercase', mb: '0.4rem' }}>
                     [KEYHOLDER] ACTION REQUIRED
                   </Typography>
-                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#64748b', lineHeight: 1.7, letterSpacing: '0.03em', maxWidth: '520px' }}>
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffffff', lineHeight: 1.7, letterSpacing: '0.03em', maxWidth: '520px' }}>
                     &gt; you are a registered keyholder. when proposals end, submit your partial decryption key to reveal final voting results.
                   </Typography>
                 </Box>
@@ -370,7 +370,7 @@ const Dashboard = () => {
         <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#1e2a35', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none' }}>
           {'─'.repeat(120)}
         </Box>
-        <Box sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#64748b', letterSpacing: '0.07em', mt: '0.5rem' }}>
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#ffffff', letterSpacing: '0.07em', mt: '0.5rem' }}>
           {'> '}{proposals.length}{' proposals on-chain · system nominal'}
         </Box>
 
