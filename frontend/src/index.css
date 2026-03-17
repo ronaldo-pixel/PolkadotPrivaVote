@@ -1,184 +1,318 @@
-/* Retro Terminal / CMD Theme Root */
-:root {
-  --text: #00ff00;          /* classic terminal green */
-  --text-h: #00ff00;        /* headings same as text */
-  --bg: #000000;            /* black background */
-  --border: #003300;        /* subtle dark green border */
-  --code-bg: #001100;       /* dark green background for code */
-  --accent: #ffcc00;        /* bright amber highlight */
-  --accent-border: #006600; /* darker accent border */
-  --font-terminal: 'Courier New', 'Roboto Mono', monospace;
+/* ═══════════════════════════════════════════════════
+   INDEX.CSS — CMD RETRO DARK GLITCH
+   Global entry-point stylesheet. Imports fonts,
+   declares design tokens, and sets base HTML/body
+   defaults. All component-level styles live in
+   App.css. All MUI overrides live in App.jsx.
+═══════════════════════════════════════════════════ */
 
-  font: 16px/1.5 var(--font-terminal);
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* ── Design Tokens ───────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg:             #080c10;   /* page base */
+  --bg-surface:     #0d1117;   /* card / panel surface */
+  --bg-overlay:     #101820;   /* inset / code block */
+  --code-bg:        #060a0d;   /* inline code bg */
+
+  /* Accent Colors */
+  --text:           #e2e8f0;   /* primary body text (off-white) */
+  --text-h:         #e2e8f0;   /* heading text */
+  --text-secondary: #64748b;   /* muted / labels */
+  --text-dim:       #334155;   /* very dim / disabled */
+
+  --accent:         #00f5d4;   /* cyan primary accent */
+  --accent-dark:    #00c9ad;   /* darker cyan */
+  --accent-amber:   #ffb800;   /* amber — PENDING states */
+  --accent-green:   #39ff14;   /* phosphor green — REVEALED / success */
+  --accent-red:     #ff3c3c;   /* error / CANCELLED */
+
+  /* Borders */
+  --border:         #1e2a35;   /* default border */
+  --accent-border:  rgba(0, 245, 212, 0.25); /* cyan tinted border */
+
+  /* Glows */
+  --cyan-glow:      0 0 8px rgba(0, 245, 212, 0.7);
+  --amber-glow:     0 0 8px rgba(255, 184, 0, 0.7);
+  --green-glow:     0 0 8px rgba(57, 255, 20, 0.7);
+  --red-glow:       0 0 8px rgba(255, 60, 60, 0.7);
+
+  /* Typography */
+  --font-terminal:  'IBM Plex Mono', 'Courier New', monospace;
+  --font-head:      'Share Tech Mono', 'JetBrains Mono', monospace;
+
+  /* Transitions */
+  --t-fast: 0.1s ease;
+  --t-base: 0.15s ease;
+
+  /* Base font */
+  font: 16px/1.6 var(--font-terminal);
   color-scheme: dark;
   color: var(--text);
   background: var(--bg);
 }
 
-@media (max-width: 1024px) {
-  :root {
-    font-size: 14px;
-  }
+@media (max-width: 1024px) { :root { font-size: 15px; } }
+@media (max-width: 768px)  { :root { font-size: 14px; } }
+
+/* ── Reset ───────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-/* Body & Root */
+/* ── Body ────────────────────────────────────── */
 body {
   margin: 0;
+  padding: 0;
   font-family: var(--font-terminal);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* CRT scanline overlay — sits above everything */
+body::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.04) 3px,
+    rgba(0, 0, 0, 0.04) 4px
+  );
+}
+
+/* ── Root ────────────────────────────────────── */
 #root {
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  text-align: left;
-  border: 1px solid var(--border);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  text-align: left;
+  /* Left terminal gutter line */
+  border-left: 2px solid rgba(0, 245, 212, 0.12);
   box-sizing: border-box;
 }
 
-/* Headings */
-h1, h2 {
-  font-family: var(--font-terminal);
-  font-weight: 700;
+/* ── Headings ────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-head);
+  font-weight: 400;
   color: var(--text-h);
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  margin: 0;
 }
 
-h1 {
-  font-size: 36px;
-  margin: 16px 0;
-}
+h1 { font-size: 2rem;    margin: 16px 0; }
+h2 { font-size: 1.5rem;  margin: 12px 0; }
+h3 { font-size: 1.2rem;  margin: 8px 0; }
+h4 { font-size: 1rem;    margin: 6px 0; }
+h5 { font-size: 0.9rem;  margin: 4px 0; }
+h6 { font-size: 0.8rem;  margin: 4px 0; }
 
-h2 {
-  font-size: 24px;
-  margin: 8px 0;
-}
-
-/* Paragraphs */
+/* ── Paragraphs ──────────────────────────────── */
 p {
   margin: 0;
   color: var(--text);
+  line-height: 1.6;
 }
 
-/* Code Blocks */
+/* ── Links ───────────────────────────────────── */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-terminal);
+  transition: color var(--t-base);
+}
+a:hover { color: #4dfce8; }
+
+/* ── Code ────────────────────────────────────── */
 code, .counter {
   font-family: var(--font-terminal);
   display: inline-flex;
   background: var(--code-bg);
-  color: var(--text);
-  padding: 4px 8px;
-  border: 1px solid var(--accent-border);
-  border-radius: 0;
-  font-size: 14px;
+  color: var(--accent);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 0.82em;
+  letter-spacing: 0.04em;
 }
 
-/* Buttons - terminal style */
-button {
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
   font-family: var(--font-terminal);
-  font-weight: 700;
-  text-transform: uppercase;
-  border-radius: 0;
-  border: 1px solid var(--text);
-  padding: 0.4em 1em;
-  font-size: 1em;
-  background: transparent;
+  font-size: 0.82em;
   color: var(--text);
+  line-height: 1.7;
+}
+
+/* ── Buttons ─────────────────────────────────── */
+button {
+  font-family: var(--font-head);
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  border-radius: 2px;
+  border: 1px solid var(--accent);
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--accent);
   cursor: pointer;
-  transition: 0.2s all;
+  transition: background var(--t-base), box-shadow var(--t-base);
 }
 button:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: transparent;
+  background: rgba(0, 245, 212, 0.07);
+  box-shadow: var(--cyan-glow);
+}
+button:active { transform: translateY(1px); }
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
-/* Inputs and Textareas */
+/* ── Inputs ──────────────────────────────────── */
 input, select, textarea {
-  background: #001100;
+  background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 2px;
   padding: 6px 10px;
   font-family: var(--font-terminal);
+  font-size: 0.85rem;
+  transition: border-color var(--t-base), box-shadow var(--t-base);
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--accent);
   outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 245, 212, 0.15);
+}
+input::placeholder, textarea::placeholder {
+  color: var(--text-dim);
 }
 
-/* Cards */
+/* ── MUI Card ────────────────────────────────── */
 .MuiCard-root {
-  background: #001100;
+  background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 2px;
   padding: 16px;
   color: var(--text);
+  box-shadow: none;
+}
+.MuiCard-root:hover {
+  border-color: rgba(0, 245, 212, 0.35);
 }
 
-/* Voting Container */
+/* ── Voting Container ────────────────────────── */
 .voting-container {
-  background: #001100;
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   padding: 16px;
-  border-radius: 0;
+  border-radius: 2px;
+  position: relative;
+}
+/* Top accent line */
+.voting-container::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.6;
 }
 
-/* Status Badge */
+/* ── Status Badge ────────────────────────────── */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-radius: 0;
-  font-weight: 700;
-  font-size: 0.85rem;
-  color: #000;
-  background-color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-family: var(--font-head);
+  font-size: 0.6rem;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  animation: glowPulse 2s ease-in-out infinite;
 }
+/* Color variants — apply via modifier class or inline style */
+.status-badge--active    { color: var(--accent);       box-shadow: var(--cyan-glow); }
+.status-badge--pending   { color: var(--accent-amber);  box-shadow: var(--amber-glow); }
+.status-badge--revealed  { color: var(--accent-green);  box-shadow: var(--green-glow); }
+.status-badge--cancelled { color: var(--accent-red);    box-shadow: var(--red-glow); }
 
-/* Winner Badge */
+/* ── Winner Badge ────────────────────────────── */
 .winner-badge {
-  background-color: var(--accent);
-  color: #000;
-  padding: 8px 16px;
-  border-radius: 0;
-  font-weight: 700;
-  text-align: center;
+  display: inline-block;
+  font-family: var(--font-head);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+  border-radius: 2px;
+  padding: 6px 16px;
+  box-shadow: var(--green-glow);
+  animation: glowPulse 2s ease-in-out infinite;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-}
-::-webkit-scrollbar-track {
-  background: #000;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--text);
-  border-radius: 0;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+/* ── Scrollbar ───────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--bg); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ── Animations ──────────────────────────────── */
+@keyframes glowPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
 }
 
-/* Responsive */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes scanIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ──────────────────────────────── */
 @media (max-width: 768px) {
-  :root {
-    font-size: 13px;
-  }
-  .voting-container {
-    padding: 12px;
-  }
+  #root { border-left: none; }
+
+  .voting-container { padding: 12px; }
+
   button {
-    padding: 0.3em 0.8em;
-    font-size: 0.9em;
+    padding: 5px 12px;
+    font-size: 0.65rem;
   }
-  h1 {
-    font-size: 28px;
-  }
-  h2 {
-    font-size: 18px;
-  }
+
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.2rem; }
 }

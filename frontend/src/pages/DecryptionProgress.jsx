@@ -3,33 +3,35 @@ import {
   Container,
   Box,
   Typography,
-  Card,
-  CardContent,
-  CardActions,
   Button,
-  Alert,
   Grid,
-  LinearProgress,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   CircularProgress,
-  Chip,
 } from '@mui/material';
-import LockOpenIcon from '@mui/icons-material/LockOpen';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useVoting } from '../context/VotingContext';
 import { zkProofGenerator } from '../utils/contractUtils';
 
+const monoFont = '"JetBrains Mono", "Courier New", monospace';
+
+const REQUIRED_DECRYPTIONS = 3;
+
+const dataBox = {
+  p: 1.5,
+  background: 'rgba(0,0,0,0.3)',
+  border: '1px solid rgba(226,232,240,0.06)',
+  borderRadius: '2px',
+};
+
 const DecryptionProgress = () => {
-  const { proposals, isKeyholder, submitPartialDecryption, initializeProposals, loading } =
-    useVoting();
-  const [proposals_init, setProposalsInit] = useState([]);
+  const { proposals, isKeyholder, submitPartialDecryption, initializeProposals } = useVoting();
+  const [endedProposals, setEndedProposals] = useState([]);
   const [selectedProposal, setSelectedProposal] = useState(null);
-  const [showDecryptionDialog, setShowDecryptionDialog] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
   const [decryptionProgress, setDecryptionProgress] = useState(0);
+  const [decryptionStep, setDecryptionStep] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -37,269 +39,563 @@ const DecryptionProgress = () => {
   }, [initializeProposals]);
 
   useEffect(() => {
-    if (proposals && proposals.length > 0) {
-      const endedProposals = proposals.filter((p) => p.status === 'ENDED');
-      setProposalsInit(endedProposals);
+    if (proposals?.length) {
+      setEndedProposals(proposals.filter((p) => p.status === 'ENDED'));
     }
   }, [proposals]);
 
   const handleOpenDecryption = (proposal) => {
     setSelectedProposal(proposal);
-    setShowDecryptionDialog(true);
+    setDecryptionProgress(0);
+    setDecryptionStep('');
+    setShowDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    if (submitting) return;
+    setShowDialog(false);
+    setSelectedProposal(null);
+    setDecryptionProgress(0);
+    setDecryptionStep('');
   };
 
   const handleSubmitDecryption = async () => {
     if (!selectedProposal) return;
-
     setSubmitting(true);
     setDecryptionProgress(0);
 
     try {
-      // Simulate decryption process
-      for (let i = 0; i < 3; i++) {
+      const steps = [
+        'computing partial decryption...',
+        'generating chaum-pedersen proof...',
+        'submitting to contract...',
+      ];
+
+      for (let i = 0; i < steps.length; i++) {
+        setDecryptionStep(steps[i]);
         await new Promise((resolve) => setTimeout(resolve, 500));
-        setDecryptionProgress(((i + 1) / 3) * 100);
+        setDecryptionProgress(((i + 1) / steps.length) * 100);
       }
 
-      // Generate partial decryption proof
       const partialDecryption = `0x${Math.random().toString(16).slice(2)}`;
       const proofData = await zkProofGenerator.generateDecryptionProof(partialDecryption);
-
-      // Submit to contract
       await submitPartialDecryption(selectedProposal.id, partialDecryption, proofData.proof);
 
-      setDecryptionProgress(100);
-      setTimeout(() => {
-        setShowDecryptionDialog(false);
-        setSelectedProposal(null);
-        setDecryptionProgress(0);
-      }, 1000);
+      setDecryptionStep('verified — submission confirmed');
+      setTimeout(() => handleCloseDialog(), 1200);
     } catch (err) {
       console.error('Decryption failed:', err);
+      setDecryptionStep(`error: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ── Not a keyholder ────────────────────────────────────────────────────────
   if (!isKeyholder) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Alert severity="warning">
-          You are not registered as a keyholder. Only keyholders can submit partial decryptions.
-        </Alert>
+        <Box sx={{ borderLeft: '2px solid #ff3c3c', pl: 1.5 }}>
+          <Typography sx={{ fontFamily: monoFont, fontSize: '0.78rem', color: '#ff3c3c' }}>
+            &gt; access denied: not registered as a keyholder
+          </Typography>
+        </Box>
       </Container>
     );
   }
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <LockOpenIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            Decryption Progress
-          </Typography>
-          <Typography color="text.secondary">
-            Manage partial decryptions for ended proposals
-          </Typography>
-        </Box>
+      {/* Header */}
+      <Box sx={{ mb: 4 }}>
+        <Typography
+          sx={{
+            fontFamily: monoFont,
+            fontWeight: 700,
+            fontSize: '1.4rem',
+            color: '#e2e8f0',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            mb: 0.5,
+          }}
+        >
+          Decryption Console
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: monoFont,
+            fontSize: '0.75rem',
+            color: 'rgba(226,232,240,0.3)',
+            letterSpacing: '0.06em',
+          }}
+        >
+          &gt; submit partial decryptions for ended proposals
+        </Typography>
       </Box>
 
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <Typography variant="body2">
-          🔑 As a keyholder, you are responsible for contributing to the decryption of voting
-          results. Each keyholder must submit a partial decryption with a zero-knowledge proof to
-          verify correctness without revealing their key share.
+      {/* Keyholder info */}
+      <Box sx={{ borderLeft: '2px solid rgba(0,245,212,0.3)', pl: 1.5, mb: 4 }}>
+        <Typography
+          sx={{
+            fontFamily: monoFont,
+            fontSize: '0.72rem',
+            color: 'rgba(226,232,240,0.3)',
+            lineHeight: 1.7,
+            letterSpacing: '0.04em',
+          }}
+        >
+          submit a partial decryption with a chaum-pedersen proof per proposal — at least 2 of
+          3 keyholders must contribute before results are revealed on-chain
         </Typography>
-      </Alert>
+      </Box>
 
-      {proposals_init && proposals_init.length > 0 ? (
-        <Grid container spacing={3}>
-          {proposals_init.map((proposal) => {
-            const completedDecryptions = proposal.partialDecryptions?.length || 0;
-            const requiredDecryptions = 3; // Example: require 3 out of 5 keyholders
-            const decryptionComplete = completedDecryptions >= requiredDecryptions;
+      {/* Proposal list */}
+      {endedProposals.length > 0 ? (
+        <Grid container spacing={2}>
+          {endedProposals.map((proposal) => {
+            const completed = proposal.partialDecryptions?.length ?? 0;
+            const done = completed >= REQUIRED_DECRYPTIONS;
+            const barFilled = Math.round((completed / REQUIRED_DECRYPTIONS) * 16);
+            const bar = '█'.repeat(barFilled) + '░'.repeat(16 - barFilled);
 
             return (
               <Grid item xs={12} md={6} key={proposal.id}>
-                <Card>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        {proposal.id}
-                      </Typography>
-                      {decryptionComplete && (
-                        <Chip
-                          icon={<CheckCircleIcon />}
-                          label="Complete"
-                          color="success"
-                          size="small"
-                        />
-                      )}
-                    </Box>
-
-                    <Typography variant="body2" sx={{ mb: 2 }}>
-                      {proposal.description}
+                <Box
+                  sx={{
+                    background: '#0d1117',
+                    border: '1px solid rgba(226,232,240,0.08)',
+                    borderLeft: `3px solid ${done ? '#39ff14' : '#ffb800'}`,
+                    borderRadius: '2px',
+                    p: 2.5,
+                    backgroundImage:
+                      'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+                  }}
+                >
+                  {/* Card header */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.72rem',
+                        color: 'rgba(226,232,240,0.35)',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {proposal.id}
                     </Typography>
+                    {done && (
+                      <Typography
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          color: '#39ff14',
+                          textShadow: '0 0 8px rgba(57,255,20,0.5)',
+                          border: '1px solid rgba(57,255,20,0.3)',
+                          px: 1,
+                          py: 0.25,
+                          letterSpacing: '0.1em',
+                        }}
+                      >
+                        [COMPLETE]
+                      </Typography>
+                    )}
+                  </Box>
 
-                    <Box sx={{ mb: 3 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="caption" color="text.secondary">
-                          Decryption Progress
+                  {/* Description */}
+                  <Typography
+                    sx={{
+                      fontFamily: monoFont,
+                      fontSize: '0.82rem',
+                      color: '#e2e8f0',
+                      lineHeight: 1.6,
+                      mb: 2.5,
+                    }}
+                  >
+                    {proposal.description}
+                  </Typography>
+
+                  {/* Decryption progress bar */}
+                  <Box sx={{ mb: 2.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
+                      <Typography
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.65rem',
+                          color: 'rgba(226,232,240,0.25)',
+                          letterSpacing: '0.1em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        decryption progress
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.65rem',
+                          color: 'rgba(226,232,240,0.35)',
+                        }}
+                      >
+                        {completed}/{REQUIRED_DECRYPTIONS} keyholders
+                      </Typography>
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.75rem',
+                        color: done ? '#39ff14' : '#ffb800',
+                        letterSpacing: '0.02em',
+                        userSelect: 'none',
+                      }}
+                    >
+                      {bar} {Math.round((completed / REQUIRED_DECRYPTIONS) * 100)}%
+                    </Typography>
+                  </Box>
+
+                  {/* Meta */}
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 2.5 }}>
+                    {[
+                      { label: 'encrypted_votes', value: `${proposal.voteCount}` },
+                      { label: 'closed_at_block', value: `#${proposal.endBlock}` },
+                    ].map(({ label, value }) => (
+                      <Box key={label} sx={dataBox}>
+                        <Typography
+                          sx={{
+                            fontFamily: monoFont,
+                            fontSize: '0.62rem',
+                            color: 'rgba(226,232,240,0.2)',
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            mb: 0.5,
+                          }}
+                        >
+                          {label}
                         </Typography>
-                        <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                          {completedDecryptions} / {requiredDecryptions}
+                        <Typography
+                          sx={{
+                            fontFamily: monoFont,
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            color: 'rgba(226,232,240,0.6)',
+                          }}
+                        >
+                          {value}
                         </Typography>
                       </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={(completedDecryptions / requiredDecryptions) * 100}
-                      />
-                    </Box>
+                    ))}
+                  </Box>
 
-                    <Box sx={{ p: 1.5, bgcolor: 'background.paper', borderRadius: 1, mb: 2 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Total Votes to Decrypt
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
-                        {proposal.voteCount} encrypted votes
-                      </Typography>
-                    </Box>
-
-                    <Grid container spacing={1} sx={{ mb: 2 }}>
-                      <Grid item xs={6}>
-                        <Box sx={{ p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Voting Options
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
-                            {proposal.options.length}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Box sx={{ p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            Closed at Block
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
-                            #{proposal.endBlock}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-
-                  <CardActions>
-                    {!decryptionComplete ? (
+                  {/* Action */}
+                  <Box sx={{ borderTop: '1px solid rgba(226,232,240,0.06)', pt: 2 }}>
+                    {!done ? (
                       <Button
-                        variant="contained"
-                        startIcon={<LockOpenIcon />}
-                        onClick={() => handleOpenDecryption(proposal)}
                         fullWidth
+                        disableRipple
+                        onClick={() => handleOpenDecryption(proposal)}
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.1em',
+                          textTransform: 'uppercase',
+                          color: '#ffb800',
+                          border: '1px solid rgba(255,184,0,0.4)',
+                          borderRadius: '2px',
+                          py: 1.25,
+                          background: 'transparent',
+                          transition: 'all 0.15s',
+                          '&:hover': {
+                            background: 'rgba(255,184,0,0.06)',
+                            borderColor: '#ffb800',
+                            boxShadow: '0 0 12px rgba(255,184,0,0.12)',
+                          },
+                        }}
                       >
-                        Submit Partial Decryption
+                        [ submit partial decryption ]
                       </Button>
                     ) : (
-                      <Button disabled fullWidth>
-                        ✓ Decryption Complete
-                      </Button>
+                      <Typography
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.72rem',
+                          color: '#39ff14',
+                          letterSpacing: '0.08em',
+                          textAlign: 'center',
+                          py: 0.5,
+                        }}
+                      >
+                        &gt; decryption complete — awaiting final reveal
+                      </Typography>
                     )}
-                  </CardActions>
-                </Card>
+                  </Box>
+                </Box>
               </Grid>
             );
           })}
         </Grid>
       ) : (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <Typography color="text.secondary">
-              No proposals awaiting decryption at the moment.
-            </Typography>
-          </CardContent>
-        </Card>
+        <Box
+          sx={{
+            py: 8,
+            textAlign: 'center',
+            border: '1px solid rgba(226,232,240,0.06)',
+            borderRadius: '2px',
+            background: 'rgba(0,0,0,0.2)',
+          }}
+        >
+          <Typography
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.78rem',
+              color: 'rgba(226,232,240,0.2)',
+              letterSpacing: '0.06em',
+            }}
+          >
+            &gt; no proposals awaiting decryption
+          </Typography>
+        </Box>
       )}
 
+      {/* Decryption Dialog */}
       <Dialog
-        open={showDecryptionDialog && !!selectedProposal}
-        onClose={() => {
-          if (!submitting) {
-            setShowDecryptionDialog(false);
-            setSelectedProposal(null);
-            setDecryptionProgress(0);
-          }
-        }}
+        open={showDialog && !!selectedProposal}
+        onClose={handleCloseDialog}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: {
+            background: '#0d1117',
+            border: '1px solid rgba(255,184,0,0.25)',
+            borderRadius: '2px',
+            boxShadow: '0 0 30px rgba(255,184,0,0.05)',
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          },
+        }}
       >
-        <DialogTitle>Submit Partial Decryption</DialogTitle>
-        <DialogContent>
+        <DialogTitle
+          sx={{
+            fontFamily: monoFont,
+            fontSize: '0.82rem',
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            color: '#ffb800',
+            borderBottom: '1px solid rgba(255,184,0,0.15)',
+            py: 2,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#ffb800',
+              boxShadow: '0 0 8px rgba(255,184,0,0.8)',
+              flexShrink: 0,
+              animation: 'statusPulse 2s ease-in-out infinite',
+              '@keyframes statusPulse': {
+                '0%, 100%': { opacity: 1 },
+                '50%': { opacity: 0.4 },
+              },
+            }}
+          />
+          partial decryption
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 2.5, pb: 1 }}>
           {selectedProposal && (
-            <Box sx={{ mt: 2 }}>
-              <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Proposal
+            <Box>
+              {/* Proposal ref */}
+              <Box sx={{ ...dataBox, mb: 2 }}>
+                <Typography
+                  sx={{
+                    fontFamily: monoFont,
+                    fontSize: '0.62rem',
+                    color: 'rgba(226,232,240,0.22)',
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    mb: 0.5,
+                  }}
+                >
+                  proposal
                 </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
+                <Typography
+                  sx={{
+                    fontFamily: monoFont,
+                    fontSize: '0.8rem',
+                    color: 'rgba(226,232,240,0.55)',
+                  }}
+                >
                   {selectedProposal.id}
                 </Typography>
               </Box>
 
-              {decryptionProgress > 0 && (
-                <Box sx={{ mb: 3 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Processing Decryption
-                  </Typography>
-                  <LinearProgress variant="determinate" value={decryptionProgress} />
-                  <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
-                    {Math.round(decryptionProgress)}%
-                  </Typography>
-                </Box>
-              )}
-
-              {decryptionProgress === 0 && (
+              {/* Key share input (only before submitting) */}
+              {!submitting && decryptionProgress === 0 && (
                 <>
-                  <TextField
-                    fullWidth
-                    label="Private Key Share"
-                    type="password"
-                    placeholder="Your encrypted key share..."
-                    disabled={submitting}
-                    sx={{ mb: 2 }}
-                  />
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      border: '1px solid rgba(226,232,240,0.08)',
+                      borderRadius: '2px',
+                      px: 1.5,
+                      py: 1,
+                      background: 'rgba(0,0,0,0.3)',
+                      mb: 2,
+                      '&:focus-within': {
+                        borderColor: 'rgba(255,184,0,0.4)',
+                      },
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.72rem',
+                        color: 'rgba(226,232,240,0.2)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      &gt;
+                    </Typography>
+                    <Box
+                      component="input"
+                      type="password"
+                      placeholder="private key share..."
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.78rem',
+                        color: '#e2e8f0',
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        width: '100%',
+                        letterSpacing: '0.04em',
+                        '&::placeholder': { color: 'rgba(226,232,240,0.18)' },
+                      }}
+                    />
+                  </Box>
 
-                  <Box sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
-                    <Typography variant="caption">
-                      ℹ️ You will generate a zero-knowledge proof to verify your partial
-                      decryption is correct without revealing your key share.
+                  <Box sx={{ borderLeft: '2px solid rgba(226,232,240,0.08)', pl: 1.5 }}>
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.7rem',
+                        color: 'rgba(226,232,240,0.22)',
+                        lineHeight: 1.7,
+                      }}
+                    >
+                      a chaum-pedersen proof will be generated to verify your partial decryption
+                      without revealing your key share
                     </Typography>
                   </Box>
                 </>
               )}
+
+              {/* Progress log */}
+              {(submitting || decryptionProgress > 0) && (
+                <Box sx={{ borderLeft: '2px solid rgba(255,184,0,0.35)', pl: 1.5, py: 0.5 }}>
+                  {decryptionStep && (
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.75rem',
+                        color: decryptionStep.startsWith('error')
+                          ? '#ff3c3c'
+                          : decryptionStep.startsWith('verified')
+                          ? '#39ff14'
+                          : '#ffb800',
+                        letterSpacing: '0.04em',
+                        mb: 1,
+                      }}
+                    >
+                      &gt; {decryptionStep}
+                    </Typography>
+                  )}
+                  <Typography
+                    sx={{
+                      fontFamily: monoFont,
+                      fontSize: '0.72rem',
+                      color: 'rgba(255,184,0,0.5)',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {'█'.repeat(Math.round((decryptionProgress / 100) * 24))}
+                    {'░'.repeat(24 - Math.round((decryptionProgress / 100) * 24))}{' '}
+                    {Math.round(decryptionProgress)}%
+                  </Typography>
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setShowDecryptionDialog(false);
-            setSelectedProposal(null);
-            setDecryptionProgress(0);
-          }} disabled={submitting}>
-            Cancel
+
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid rgba(226,232,240,0.06)', gap: 1 }}>
+          <Button
+            onClick={handleCloseDialog}
+            disabled={submitting}
+            disableRipple
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.72rem',
+              letterSpacing: '0.08em',
+              textTransform: 'lowercase',
+              color: 'rgba(226,232,240,0.35)',
+              border: '1px solid rgba(226,232,240,0.08)',
+              borderRadius: '2px',
+              px: 2,
+              py: 0.75,
+              '&:hover:not(:disabled)': {
+                borderColor: 'rgba(255,60,60,0.35)',
+                color: '#ff3c3c',
+                background: 'rgba(255,60,60,0.04)',
+              },
+            }}
+          >
+            &gt; cancel
           </Button>
+
           <Button
             onClick={handleSubmitDecryption}
-            variant="contained"
             disabled={submitting || decryptionProgress > 0}
+            disableRipple
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'lowercase',
+              color: submitting || decryptionProgress > 0 ? 'rgba(226,232,240,0.2)' : '#ffb800',
+              border: '1px solid',
+              borderColor:
+                submitting || decryptionProgress > 0
+                  ? 'rgba(226,232,240,0.06)'
+                  : 'rgba(255,184,0,0.4)',
+              borderRadius: '2px',
+              px: 2,
+              py: 0.75,
+              background: 'transparent',
+              transition: 'all 0.15s',
+              '&:hover:not(:disabled)': {
+                background: 'rgba(255,184,0,0.06)',
+                borderColor: '#ffb800',
+                boxShadow: '0 0 10px rgba(255,184,0,0.12)',
+              },
+            }}
           >
-            {submitting || decryptionProgress > 0 ? (
-              <>
-                <CircularProgress size={20} sx={{ mr: 1 }} />
-                Processing...
-              </>
+            {submitting ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={12} sx={{ color: 'rgba(255,184,0,0.4)' }} />
+                processing...
+              </Box>
             ) : (
-              'Submit'
+              '&gt; submit'
             )}
           </Button>
         </DialogActions>

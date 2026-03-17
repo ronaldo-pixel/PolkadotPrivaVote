@@ -4,29 +4,53 @@ import {
   Container,
   Box,
   Typography,
-  Button,
-  Chip,
   Grid,
-  Card,
-  CardContent,
-  Alert,
-  Divider,
   CircularProgress,
-  Tabs,
-  Tab,
 } from '@mui/material';
 import { useVoting } from '../context/VotingContext';
 import ProposalStatusTimeline from '../components/ProposalStatusTimeline';
 import VoteForm from '../components/VoteForm';
-import { proposalStatusUtils, formatUtils, formatUtils as formatUt } from '../utils/contractUtils';
+import { formatUtils } from '../utils/contractUtils';
+
+const monoFont = '"JetBrains Mono", "Courier New", monospace';
+
+const STATUS_COLOR = {
+  ACTIVE:      '#00f5d4',
+  PENDING_DKG: '#ffb800',
+  ENDED:       '#94a3b8',
+  REVEALED:    '#39ff14',
+  CANCELLED:   '#ff3c3c',
+};
+
+const dataBox = {
+  p: 1.5,
+  background: 'rgba(0,0,0,0.3)',
+  border: '1px solid rgba(226,232,240,0.06)',
+  borderRadius: '2px',
+  height: '100%',
+};
+
+const SectionLabel = ({ children }) => (
+  <Typography
+    sx={{
+      fontFamily: monoFont,
+      fontSize: '0.68rem',
+      color: 'rgba(226,232,240,0.25)',
+      letterSpacing: '0.12em',
+      textTransform: 'uppercase',
+      mb: 2,
+    }}
+  >
+    {children}
+  </Typography>
+);
 
 const ProposalDetail = () => {
   const { id } = useParams();
-  const { proposals, getProposalDetail, initializeProposals, userAddress, userVotes } =
-    useVoting();
+  const { proposals, initializeProposals, userAddress, userVotes } = useVoting();
   const [proposal, setProposal] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tabValue, setTabValue] = useState(0);
+  const [activeTab, setActiveTab] = useState('results');
 
   useEffect(() => {
     initializeProposals();
@@ -34,309 +58,474 @@ const ProposalDetail = () => {
 
   useEffect(() => {
     if (proposals.length > 0) {
-      const prop = proposals.find((p) => p.id === id);
-      setProposal(prop);
+      setProposal(proposals.find((p) => p.id === id) ?? null);
       setLoading(false);
     }
   }, [proposals, id]);
 
   if (loading || !proposal) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
-        <CircularProgress />
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress size={20} sx={{ color: 'rgba(0,245,212,0.4)' }} />
       </Box>
     );
   }
 
-  const statusColor = proposalStatusUtils.getStatusColor(proposal.status);
+  const accentColor = STATUS_COLOR[proposal.status] ?? '#94a3b8';
   const hasVoted = userVotes.includes(proposal.id);
-  const participationRate = proposal.totalParticipation / proposal.minVoterThreshold;
+
+  // Unicode bar helper (20 chars wide)
+  const makeBar = (pct, winner = false) => {
+    const filled = Math.round((pct / 100) * 20);
+    const color  = winner ? '#39ff14' : '#00f5d4';
+    return { bar: '█'.repeat(filled) + '░'.repeat(20 - filled), color };
+  };
+
+  const TABS = ['results', 'details'];
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
-          <Box>
-            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-              {proposal.id}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Created by: {formatUtils.formatAddress(proposal.creator)}
-            </Typography>
-          </Box>
-          <Chip
-            label={proposalStatusUtils.getStatusLabel(proposal.status)}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <Box
+        sx={{
+          mb: 4,
+          pb: 3,
+          borderBottom: '1px solid rgba(226,232,240,0.06)',
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+          <Typography
             sx={{
-              bgcolor: statusColor,
-              color: 'white',
-              fontWeight: 600,
-              fontSize: '1rem',
-              p: 2,
+              fontFamily: monoFont,
+              fontWeight: 700,
+              fontSize: '1.4rem',
+              color: '#e2e8f0',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
             }}
-          />
-        </Box>
-      </Box>
+          >
+            {proposal.id}
+          </Typography>
 
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+          <Typography
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              color: accentColor,
+              textShadow: `0 0 8px ${accentColor}80`,
+              border: `1px solid ${accentColor}40`,
+              px: 1,
+              py: 0.25,
+              lineHeight: 1.6,
+              flexShrink: 0,
+              animation:
+                proposal.status === 'ACTIVE' || proposal.status === 'PENDING_DKG'
+                  ? 'statusPulse 2.5s ease-in-out infinite'
+                  : 'none',
+              '@keyframes statusPulse': {
+                '0%, 100%': { opacity: 1 },
+                '50%': { opacity: 0.5 },
+              },
+            }}
+          >
+            [{proposal.status}]
+          </Typography>
+        </Box>
+
+        <Typography
+          sx={{
+            fontFamily: monoFont,
+            fontSize: '0.72rem',
+            color: 'rgba(226,232,240,0.3)',
+            letterSpacing: '0.04em',
+            mb: 1.5,
+          }}
+        >
+          $ {formatUtils.formatAddress(proposal.creator)}
+        </Typography>
+
+        <Typography
+          sx={{
+            fontFamily: monoFont,
+            fontSize: '0.9rem',
+            color: 'rgba(226,232,240,0.75)',
+            lineHeight: 1.65,
+            letterSpacing: '0.02em',
+          }}
+        >
           {proposal.description}
         </Typography>
       </Box>
 
+      {/* ── Status timeline ─────────────────────────────────────────────────── */}
       <ProposalStatusTimeline proposal={proposal} />
 
-      <Grid container spacing={3} sx={{ mb: 4, mt: 1 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Voting Mode
+      {/* ── Stat cards ──────────────────────────────────────────────────────── */}
+      <Grid container spacing={1.5} sx={{ mb: 4 }}>
+        {[
+          {
+            label: 'voting_mode',
+            value: proposal.votingMode,
+            sub: proposal.votingMode === 'quadratic' ? 'vote power = sqrt(tokens)' : '1 token = 1 vote',
+          },
+          {
+            label: 'eligibility_threshold',
+            value: `${proposal.eligibilityThreshold}`,
+            sub: 'minimum tokens required',
+          },
+          {
+            label: 'min_voter_threshold',
+            value: `${proposal.minVoterThreshold}`,
+            sub: 'for proposal validity',
+          },
+          {
+            label: 'current_participation',
+            value: `${proposal.totalParticipation}`,
+            sub: `${Math.round((proposal.totalParticipation / proposal.minVoterThreshold) * 100)}% of required`,
+          },
+        ].map(({ label, value, sub }) => (
+          <Grid item xs={12} sm={6} md={3} key={label}>
+            <Box sx={dataBox}>
+              <Typography
+                sx={{
+                  fontFamily: monoFont,
+                  fontSize: '0.62rem',
+                  color: 'rgba(226,232,240,0.2)',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  mb: 0.75,
+                }}
+              >
+                {label}
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {proposal.votingMode === 'quadratic' ? 'Quadratic' : 'Normal'}
+              <Typography
+                sx={{
+                  fontFamily: monoFont,
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#e2e8f0',
+                  mb: 0.25,
+                }}
+              >
+                {value}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {proposal.votingMode === 'quadratic'
-                  ? 'Vote power = √(tokens)'
-                  : '1 token = 1 vote'}
+              <Typography
+                sx={{
+                  fontFamily: monoFont,
+                  fontSize: '0.65rem',
+                  color: 'rgba(226,232,240,0.2)',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {sub}
               </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Eligibility Threshold
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {proposal.eligibilityThreshold}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Minimum tokens required
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Minimum Votes Required
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {proposal.minVoterThreshold}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                For proposal validity
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Current Participation
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {proposal.totalParticipation}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {formatUt.formatPercentage(proposal.totalParticipation, proposal.minVoterThreshold)}
-                {' '}of required
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+            </Box>
+          </Grid>
+        ))}
       </Grid>
 
-      <Box sx={{ mb: 3 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          <Tab label="Results" />
-          <Tab label="Details" />
-        </Tabs>
+      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
+      <Box
+        sx={{
+          display: 'flex',
+          borderBottom: '1px solid rgba(226,232,240,0.06)',
+          mb: 3,
+        }}
+      >
+        {TABS.map((tab) => {
+          const active = activeTab === tab;
+          return (
+            <Box
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              sx={{
+                fontFamily: monoFont,
+                fontSize: '0.75rem',
+                letterSpacing: '0.08em',
+                textTransform: 'lowercase',
+                color: active ? '#00f5d4' : 'rgba(226,232,240,0.3)',
+                borderBottom: active ? '1px solid #00f5d4' : '1px solid transparent',
+                px: 2.5,
+                py: 1.25,
+                cursor: 'pointer',
+                userSelect: 'none',
+                transition: 'all 0.15s',
+                '&:hover': active ? {} : { color: 'rgba(226,232,240,0.55)' },
+              }}
+            >
+              {active ? `> ${tab}` : `  ${tab}`}
+            </Box>
+          );
+        })}
       </Box>
 
-      {tabValue === 0 && (
-        <Card sx={{ mb: 4 }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-              Vote Distribution
-            </Typography>
+      {/* ── Results tab ─────────────────────────────────────────────────────── */}
+      {activeTab === 'results' && (
+        <Box
+          sx={{
+            background: '#0d1117',
+            border: '1px solid rgba(226,232,240,0.08)',
+            borderRadius: '2px',
+            p: 3,
+            mb: 4,
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}
+        >
+          <SectionLabel>/* vote distribution */</SectionLabel>
 
-            {proposal.status === 'REVEALED' ? (
-              <>
-                {proposal.options.map((option, idx) => {
-                  const count = proposal.voteWeight[option] || 0;
-                  const percentage =
-                    proposal.totalParticipation > 0
-                      ? (count / proposal.totalParticipation) * 100
-                      : 0;
-
-                  return (
-                    <Box key={idx} sx={{ mb: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="body2">
-                          {option}
-                          {option === proposal.winner && '🏆'}
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {count} votes ({percentage.toFixed(1)}%)
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          height: 8,
-                          bgcolor: 'background.paper',
-                          borderRadius: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            bgcolor: option === proposal.winner ? 'success.main' : 'primary.main',
-                            width: `${percentage}%`,
-                            transition: 'width 0.3s ease',
-                          }}
-                        />
-                      </Box>
-                    </Box>
-                  );
-                })}
-              </>
-            ) : proposal.status === 'ENDED' ? (
-              <Alert severity="info">
-                Voting has ended. Results will be revealed once keyholders complete the
-                decryption process.
-              </Alert>
-            ) : (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Real-time vote count (encrypted votes cannot be attributed to voters)
+          {proposal.status === 'ENDED' ? (
+            <Box sx={{ borderLeft: '2px solid #94a3b8', pl: 1.5 }}>
+              <Typography
+                sx={{
+                  fontFamily: monoFont,
+                  fontSize: '0.75rem',
+                  color: '#94a3b8',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                &gt; voting closed — awaiting keyholder decryption
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              {proposal.status === 'ACTIVE' && (
+                <Typography
+                  sx={{
+                    fontFamily: monoFont,
+                    fontSize: '0.7rem',
+                    color: 'rgba(226,232,240,0.2)',
+                    letterSpacing: '0.04em',
+                    mb: 2.5,
+                  }}
+                >
+                  live vote count — encrypted ballots cannot be attributed to voters
                 </Typography>
-                {proposal.options.map((option, idx) => {
-                  const count = proposal.voteWeight[option] || 0;
-                  const percentage =
-                    proposal.totalParticipation > 0
-                      ? (count / proposal.totalParticipation) * 100
-                      : 0;
+              )}
 
-                  return (
-                    <Box key={idx} sx={{ mb: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="body2">{option}</Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {count} ({percentage.toFixed(1)}%)
-                        </Typography>
-                      </Box>
-                      <Box
+              {proposal.options.map((option, idx) => {
+                const count = proposal.voteWeight[option] ?? 0;
+                const pct =
+                  proposal.totalParticipation > 0
+                    ? (count / proposal.totalParticipation) * 100
+                    : 0;
+                const isWinner =
+                  proposal.status === 'REVEALED' && option === proposal.winner;
+                const { bar, color } = makeBar(pct, isWinner);
+
+                return (
+                  <Box key={idx} sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography
                         sx={{
-                          height: 8,
-                          bgcolor: 'background.paper',
-                          borderRadius: 1,
-                          overflow: 'hidden',
+                          fontFamily: monoFont,
+                          fontSize: '0.78rem',
+                          color: isWinner ? '#39ff14' : 'rgba(226,232,240,0.65)',
+                          fontWeight: isWinner ? 700 : 400,
+                          textShadow: isWinner ? '0 0 8px rgba(57,255,20,0.4)' : 'none',
                         }}
                       >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            bgcolor: 'primary.main',
-                            width: `${percentage}%`,
-                            transition: 'width 0.3s ease',
-                          }}
-                        />
-                      </Box>
+                        [{idx + 1}] {option}
+                        {isWinner && (
+                          <Box
+                            component="span"
+                            sx={{
+                              fontFamily: monoFont,
+                              fontSize: '0.65rem',
+                              color: '#39ff14',
+                              ml: 1,
+                              letterSpacing: '0.1em',
+                            }}
+                          >
+                            [WINNER]
+                          </Box>
+                        )}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontFamily: monoFont,
+                          fontSize: '0.72rem',
+                          color: 'rgba(226,232,240,0.35)',
+                        }}
+                      >
+                        {count} / {pct.toFixed(1)}%
+                      </Typography>
                     </Box>
-                  );
-                })}
-              </>
-            )}
-          </CardContent>
-        </Card>
+                    <Typography
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.72rem',
+                        color,
+                        userSelect: 'none',
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      {bar}
+                    </Typography>
+                  </Box>
+                );
+              })}
+
+              {proposal.status === 'REVEALED' && (
+                <Box sx={{ borderLeft: '2px solid rgba(57,255,20,0.3)', pl: 1.5, mt: 3 }}>
+                  <Typography
+                    sx={{
+                      fontFamily: monoFont,
+                      fontSize: '0.72rem',
+                      color: '#39ff14',
+                      textShadow: '0 0 8px rgba(57,255,20,0.4)',
+                      letterSpacing: '0.06em',
+                    }}
+                  >
+                    &gt; results verified on-chain — winner: {proposal.winner}
+                  </Typography>
+                </Box>
+              )}
+            </>
+          )}
+        </Box>
       )}
 
-      {tabValue === 1 && (
-        <Card sx={{ mb: 4 }}>
-          <CardContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="caption" color="text.secondary">
-                  Start Block
-                </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                  #{proposal.startBlock}
-                </Typography>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="caption" color="text.secondary">
-                  End Block
-                </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                  #{proposal.endBlock}
-                </Typography>
-              </Grid>
-              <Grid item xs={12}>
-                <Divider />
-              </Grid>
-              <Grid item xs={12}>
-                <Typography variant="caption" color="text.secondary">
-                  Voting Options
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+      {/* ── Details tab ─────────────────────────────────────────────────────── */}
+      {activeTab === 'details' && (
+        <Box
+          sx={{
+            background: '#0d1117',
+            border: '1px solid rgba(226,232,240,0.08)',
+            borderRadius: '2px',
+            p: 3,
+            mb: 4,
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}
+        >
+          <SectionLabel>/* proposal details */</SectionLabel>
+
+          <Grid container spacing={1.5}>
+            <Grid item xs={12} sm={6}>
+              <Box sx={dataBox}>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>start_block</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: 'rgba(226,232,240,0.6)' }}>#{proposal.startBlock}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Box sx={dataBox}>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>end_block</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: '#ff3c3c' }}>#{proposal.endBlock}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ ...dataBox, height: 'auto' }}>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 1 }}>voting_options</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
                   {proposal.options.map((option, idx) => (
-                    <Chip key={idx} label={option} />
+                    <Typography
+                      key={idx}
+                      sx={{
+                        fontFamily: monoFont,
+                        fontSize: '0.72rem',
+                        color: 'rgba(226,232,240,0.5)',
+                        border: '1px solid rgba(226,232,240,0.1)',
+                        px: 1,
+                        py: 0.25,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      [{idx + 1}] {option}
+                    </Typography>
                   ))}
                 </Box>
-              </Grid>
+              </Box>
             </Grid>
-          </CardContent>
-        </Card>
+          </Grid>
+        </Box>
       )}
 
+      {/* ── Vote form (ACTIVE only) ──────────────────────────────────────────── */}
       {proposal.status === 'ACTIVE' && userAddress && (
-        <Card sx={{ mb: 4, bgcolor: 'primary.light' }}>
-          <CardContent>
-            {hasVoted ? (
-              <Alert severity="success">
-                ✓ You have already voted on this proposal. Your encrypted vote has been recorded.
-              </Alert>
-            ) : (
-              <>
-                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                  Cast Your Vote
-                </Typography>
-                <VoteForm
-                  proposal={proposal}
-                  onVoteSuccess={() => {
-                    console.log('Vote submitted successfully');
-                  }}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <Box
+          sx={{
+            background: '#0d1117',
+            border: '1px solid rgba(226,232,240,0.08)',
+            borderLeft: '3px solid rgba(0,245,212,0.4)',
+            borderRadius: '2px',
+            p: 3,
+            mb: 4,
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}
+        >
+          <SectionLabel>/* cast vote */</SectionLabel>
+
+          {hasVoted ? (
+            <Box sx={{ borderLeft: '2px solid #39ff14', pl: 1.5 }}>
+              <Typography
+                sx={{
+                  fontFamily: monoFont,
+                  fontSize: '0.75rem',
+                  color: '#39ff14',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                &gt; vote recorded — encrypted ballot stored on-chain
+              </Typography>
+            </Box>
+          ) : (
+            <VoteForm
+              proposal={proposal}
+              onVoteSuccess={() => console.log('Vote submitted successfully')}
+            />
+          )}
+        </Box>
       )}
 
+      {/* ── Status notices ──────────────────────────────────────────────────── */}
       {proposal.status === 'ENDED' && (
-        <Alert severity="warning" sx={{ mb: 4 }}>
-          Voting has ended. The results are awaiting decryption by keyholders. This may take some
-          time.
-        </Alert>
+        <Box sx={{ borderLeft: '2px solid #94a3b8', pl: 1.5, mb: 4 }}>
+          <Typography
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.75rem',
+              color: '#94a3b8',
+              letterSpacing: '0.04em',
+            }}
+          >
+            &gt; voting ended — results awaiting keyholder decryption
+          </Typography>
+        </Box>
       )}
 
       {proposal.status === 'REVEALED' && (
-        <Alert severity="success" sx={{ mb: 4 }}>
-          ✓ Results have been revealed. The winning option is highlighted in green above.
-        </Alert>
+        <Box sx={{ borderLeft: '2px solid #39ff14', pl: 1.5, mb: 4 }}>
+          <Typography
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.75rem',
+              color: '#39ff14',
+              textShadow: '0 0 8px rgba(57,255,20,0.4)',
+              letterSpacing: '0.04em',
+            }}
+          >
+            &gt; results revealed — winning option highlighted above
+          </Typography>
+        </Box>
       )}
 
       {!userAddress && proposal.status === 'ACTIVE' && (
-        <Alert severity="info">Please connect your wallet to vote on this proposal.</Alert>
+        <Box sx={{ borderLeft: '2px solid rgba(0,245,212,0.3)', pl: 1.5, mb: 4 }}>
+          <Typography
+            sx={{
+              fontFamily: monoFont,
+              fontSize: '0.75rem',
+              color: 'rgba(0,245,212,0.6)',
+              letterSpacing: '0.04em',
+            }}
+          >
+            &gt; connect your wallet to vote on this proposal
+          </Typography>
+        </Box>
       )}
     </Container>
   );
