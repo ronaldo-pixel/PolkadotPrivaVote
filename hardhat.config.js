@@ -33,10 +33,19 @@ module.exports = {
             polkavm: true,
             url: "http://127.0.0.1:8545",
         },
-        paseo: {
+        passetHub: {
             polkavm: true,
             url: "https://testnet-passet-hub-eth-rpc.polkadot.io",
             accounts: [process.env.PASEO_PK],
         },
+        polkadotTestnet: {
+            polkavm: true,
+            url: "https://services.polkadothub-rpc.com/testnet",
+            chainId: 420420417,
+            accounts: [process.env.PASEO_PK],
+        },
+    },
+    ignition: {
+        requiredConfirmations: 1,
     },
 };
