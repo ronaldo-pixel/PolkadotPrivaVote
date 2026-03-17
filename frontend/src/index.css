@@ -1,111 +1,184 @@
+/* Retro Terminal / CMD Theme Root */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --text: #00ff00;          /* classic terminal green */
+  --text-h: #00ff00;        /* headings same as text */
+  --bg: #000000;            /* black background */
+  --border: #003300;        /* subtle dark green border */
+  --code-bg: #001100;       /* dark green background for code */
+  --accent: #ffcc00;        /* bright amber highlight */
+  --accent-border: #006600; /* darker accent border */
+  --font-terminal: 'Courier New', 'Roboto Mono', monospace;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  font: 16px/1.5 var(--font-terminal);
+  color-scheme: dark;
   color: var(--text);
   background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
+@media (max-width: 1024px) {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+    font-size: 14px;
   }
 }
 
+/* Body & Root */
 body {
   margin: 0;
+  font-family: var(--font-terminal);
 }
 
 #root {
-  width: 1126px;
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
+  text-align: left;
+  border: 1px solid var(--border);
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
+/* Headings */
+h1, h2 {
+  font-family: var(--font-terminal);
+  font-weight: 700;
   color: var(--text-h);
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+  font-size: 36px;
+  margin: 16px 0;
 }
+
 h2 {
   font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+  margin: 8px 0;
 }
+
+/* Paragraphs */
 p {
   margin: 0;
+  color: var(--text);
 }
 
-code,
-.counter {
-  font-family: var(--mono);
+/* Code Blocks */
+code, .counter {
+  font-family: var(--font-terminal);
   display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  background: var(--code-bg);
+  color: var(--text);
+  padding: 4px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 0;
+  font-size: 14px;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* Buttons - terminal style */
+button {
+  font-family: var(--font-terminal);
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 0;
+  border: 1px solid var(--text);
+  padding: 0.4em 1em;
+  font-size: 1em;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: 0.2s all;
+}
+button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: transparent;
+}
+
+/* Inputs and Textareas */
+input, select, textarea {
+  background: #001100;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-family: var(--font-terminal);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Cards */
+.MuiCard-root {
+  background: #001100;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px;
+  color: var(--text);
+}
+
+/* Voting Container */
+.voting-container {
+  background: #001100;
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: 0;
+}
+
+/* Status Badge */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 0;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #000;
+  background-color: var(--accent);
+}
+
+/* Winner Badge */
+.winner-badge {
+  background-color: var(--accent);
+  color: #000;
+  padding: 8px 16px;
+  border-radius: 0;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #000;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  :root {
+    font-size: 13px;
+  }
+  .voting-container {
+    padding: 12px;
+  }
+  button {
+    padding: 0.3em 0.8em;
+    font-size: 0.9em;
+  }
+  h1 {
+    font-size: 28px;
+  }
+  h2 {
+    font-size: 18px;
+  }
 }
