@@ -21,7 +21,7 @@ circuits/build
 contracts/dkg.sol
 dkg.js
 keyholder.js
-test-dkg.js
+
 ignition/modules/deploydkg.js
 !circuits/build/vote_final.zkey
 !circuits/build/verification_key.json
