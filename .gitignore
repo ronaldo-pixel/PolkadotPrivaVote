@@ -12,15 +12,16 @@ node_modules
 # solidity-coverage files
 /coverage
 /coverage.json
-
+resolc-native
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/
-
+/
 circuits/build
 /ignition/modules/cht.md
 contracts/dkg.sol
 dkg.js
 keyholder.js
+solc-static-linux
 
 ignition/modules/deploydkg.js
 !circuits/build/vote_final.zkey
