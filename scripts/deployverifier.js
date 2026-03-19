@@ -24,7 +24,7 @@ async function main() {
         fs.readFileSync(path.join(BUILD_DIR, "Verifier.json"), "utf8")
     );
 
-    const contractKey = Object.keys(combined.contracts).find(k => k.includes("Groth16Verifier"));
+    const contractKey = Object.keys(combined.contracts).find(k => k.includes("contracts/Verifier.sol:Groth16Verifier"));
     if (!contractKey) {
         console.error("Groth16Verifier not found in Verifier.json");
         console.error("Available keys:", Object.keys(combined.contracts));

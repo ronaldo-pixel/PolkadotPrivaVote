@@ -4,6 +4,8 @@ const { ethers } = require("ethers");
 const snarkjs = require("snarkjs");
 const { buildBabyjub } = require("circomlibjs");
 const fs = require("fs");
+const path = require("path");
+const BUILD_DIR = path.join(__dirname, "..", "build");
 
 async function computeEncryptedVote(voteVector, nonces, publicKey, babyJub) {
     const F = babyJub.F;
@@ -54,7 +56,7 @@ function leInt2Buff(n) {
 
 async function main() {
 
-    const VERIFIER_ADDRESS = "0xc13Db6b6DEaeB082c77ae801855f9bc3B91bDa80"; // paste deployed address here
+    const VERIFIER_ADDRESS = "0xA5230B4049DF97bafCE8B4de1113826c5106859a"; // paste deployed address here
 
     // ─────────────────────────────────────────────
     // Setup BabyJubJub
@@ -176,7 +178,19 @@ async function main() {
     // ─────────────────────────────────────────────
     const provider = new ethers.JsonRpcProvider(process.env.PASEO_RPC_URL);
     const signer = new ethers.Wallet(process.env.PASEO_PK, provider);
-    const abi = JSON.parse(fs.readFileSync("build/Groth16Verifier.abi", "utf8"));
+    const combined = JSON.parse(
+            fs.readFileSync(path.join(BUILD_DIR, "Verifier.json"), "utf8")
+    );
+    const contractKey = Object.keys(combined.contracts).find(k => k.includes("contracts/Verifier.sol:Groth16Verifier"));
+    if (!contractKey) {
+        console.error("Groth16Verifier not found in Verifier.json");
+        console.error("Available keys:", Object.keys(combined.contracts));
+        process.exit(1);
+    }
+
+    const contractData = combined.contracts[contractKey];
+
+    const abi          = contractData.abi;
     const verifier = new ethers.Contract(VERIFIER_ADDRESS, abi, signer);
 
     console.log("\nCalling verifyProof on Passet Hub...");

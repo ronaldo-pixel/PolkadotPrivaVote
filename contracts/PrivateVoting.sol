@@ -10,9 +10,7 @@ interface IVerifier {
     ) external view returns (bool);
 }
 
-interface IERC20 {
-    function balanceOf(address account) external view returns (uint256);
-}
+
 
 contract PrivateVoting {
 
@@ -63,16 +61,16 @@ contract PrivateVoting {
         uint256 eligibilityThreshold;
         uint256 minVoterThreshold;
         ProposalStatus status;
-        address tokenContract;
         uint256[2] electionPublicKey;
         uint256[2][NUM_KEYHOLDERS] publicKeyShares;
         ElGamalCiphertext[MAX_OPTIONS] encryptedTally;
         uint256 voteCount;
         uint256[2][MAX_OPTIONS][NUM_KEYHOLDERS] partialDecryptions;
-        uint256 partialCount;
         uint256[MAX_OPTIONS] finalResult;
         uint256 winningOption;
         uint256 endedAtBlock;
+        uint256 shareCount;    
+        uint256 partialCount;
     }
 
     // =========================================================================
@@ -87,6 +85,7 @@ contract PrivateVoting {
 
     uint256 public proposalCount;
     address public verifierContract;
+    
 
     // =========================================================================
     // Events
@@ -127,6 +126,21 @@ contract PrivateVoting {
     error VotingNotOpen(uint256 proposalId);
     error InsufficientBalance(address voter, uint256 balance, uint256 required);
     error NotEnoughVoters(uint256 actual, uint256 required);
+    error InvalidOptionCount(uint256 provided, uint256 min, uint256 max);
+    error DurationMustBePositive();
+    error MinVoterThresholdTooLow(uint256 provided, uint256 min);
+    error VotingWindowStillOpen(uint256 proposalId, uint256 currentBlock, uint256 endBlock);
+
+    error C1XMismatch(uint256 option, uint256 expected, uint256 got);
+    error C1YMismatch(uint256 option, uint256 expected, uint256 got);
+    error C2XMismatch(uint256 option, uint256 expected, uint256 got);
+    error C2YMismatch(uint256 option, uint256 expected, uint256 got);
+
+    error InvalidKeyholderIndex(uint256 provided, uint256 max);
+    error ModExpFailed();
+    error InverseOfZero();
+    error WrongTally(uint256 option, uint256 expectedX, uint256 expectedY, uint256 gotX, uint256 gotY);
+
 
     // =========================================================================
     // Modifiers
@@ -156,6 +170,7 @@ contract PrivateVoting {
         keyholders[1]    = keyholder1;
         keyholders[2]    = keyholder2;
         verifierContract = verifier;
+        
     }
 
     // =========================================================================
@@ -168,13 +183,14 @@ contract PrivateVoting {
         VotingMode votingMode,
         uint256 duration,
         uint256 eligibilityThreshold,
-        uint256 minVoterThreshold,
-        address tokenContract
+        uint256 minVoterThreshold
     ) external returns (uint256 proposalId) {
-        require(options.length >= MIN_OPTIONS && options.length <= MAX_OPTIONS, "invalid option count");
-        require(duration > 0,                     "duration must be positive");
-        require(minVoterThreshold >= MIN_VOTERS,  "min voter threshold too low");
-        require(tokenContract != address(0),      "invalid token contract");
+        if (options.length < MIN_OPTIONS || options.length > MAX_OPTIONS)
+            revert InvalidOptionCount(options.length, MIN_OPTIONS, MAX_OPTIONS);
+        if (duration == 0)
+            revert DurationMustBePositive();
+        if (minVoterThreshold < MIN_VOTERS)
+            revert MinVoterThresholdTooLow(minVoterThreshold, MIN_VOTERS);
 
         proposalId = proposalCount++;
 
@@ -189,7 +205,6 @@ contract PrivateVoting {
         p.eligibilityThreshold = eligibilityThreshold;
         p.minVoterThreshold    = minVoterThreshold;
         p.status               = ProposalStatus.PENDING_DKG;
-        p.tokenContract        = tokenContract;
 
         // Tally initialised to BabyJubJub identity (0,1) for homomorphic addition
         for (uint256 i = 0; i < MAX_OPTIONS; i++) {
@@ -214,16 +229,15 @@ contract PrivateVoting {
         x      = p.electionPublicKey[0];
         y      = p.electionPublicKey[1];
         status = p.status;
-        for (uint256 i = 0; i < NUM_KEYHOLDERS; i++) {
-            if (_shareSubmitted[proposalId][i]) sharesIn++;
-        }
+        sharesIn = p.shareCount;
     }
 
     function getPublicKeyShare(uint256 proposalId, uint256 keyholderIndex)
         external view proposalExists(proposalId)
         returns (uint256 x, uint256 y, bool submitted)
     {
-        require(keyholderIndex < NUM_KEYHOLDERS, "invalid keyholder index");
+        if (keyholderIndex >= NUM_KEYHOLDERS)   
+            revert InvalidKeyholderIndex(keyholderIndex, NUM_KEYHOLDERS - 1);           
         submitted = _shareSubmitted[proposalId][keyholderIndex];
         if (submitted) {
             x = proposals[proposalId].publicKeyShares[keyholderIndex][0];
@@ -267,11 +281,8 @@ contract PrivateVoting {
 
         emit PublicKeyShareSubmitted(proposalId, msg.sender, idx, shareX, shareY);
 
-        uint256 count;
-        for (uint256 i = 0; i < NUM_KEYHOLDERS; i++) {
-            if (_shareSubmitted[proposalId][i]) count++;
-        }
-        if (count == NUM_KEYHOLDERS) _finalizeElectionKey(proposalId);
+        p.shareCount++;
+        if (p.shareCount == NUM_KEYHOLDERS) _finalizeElectionKey(proposalId);
     }
 
     // =========================================================================
@@ -318,18 +329,20 @@ contract PrivateVoting {
         Proposal storage p = proposals[proposalId];
 
         // ── 1. Status and timing ──────────────────────────────────────────────
+        if (p.status == ProposalStatus.ACTIVE && block.number > p.endBlock) {
+            closeVoting(proposalId);  // transitions to ENDED or CANCELLED
+        }
         if (p.status != ProposalStatus.ACTIVE) revert VotingNotOpen(proposalId);
-        if (block.number < p.startBlock || block.number > p.endBlock)
-            revert VotingNotOpen(proposalId);
+        if (block.number < p.startBlock) revert VotingNotOpen(proposalId);
 
         // ── 2. One vote per address ───────────────────────────────────────────
         if (hasVoted[proposalId][msg.sender]) revert AlreadyVoted(proposalId, msg.sender);
 
         // ── 3. Token eligibility ──────────────────────────────────────────────
         if (p.eligibilityThreshold > 0) {
-            uint256 bal = IERC20(p.tokenContract).balanceOf(msg.sender);
-            if (bal < p.eligibilityThreshold)
-                revert InsufficientBalance(msg.sender, bal, p.eligibilityThreshold);
+            
+            if (msg.sender.balance < p.eligibilityThreshold)
+                revert InsufficientBalance(msg.sender, msg.sender.balance, p.eligibilityThreshold);
         }
 
         // ── 4. Public signal: election public key must match stored EPK ───────
@@ -348,7 +361,7 @@ contract PrivateVoting {
         //    their weight. We read balanceOf here rather than in the circuit
         //    (circuits cannot read chain state).
         uint256 claimedBalance = pubSignals[0];
-        uint256 actualBalance  = IERC20(p.tokenContract).balanceOf(msg.sender);
+        uint256 actualBalance  = msg.sender.balance;
         if (claimedBalance > actualBalance)
             revert InsufficientBalance(msg.sender, actualBalance, claimedBalance);
 
@@ -401,12 +414,13 @@ contract PrivateVoting {
      * After this, keyholders can begin submitting partial decryptions.
      * If minVoterThreshold is not met, the proposal is CANCELLED instead.
      */
-    function closeVoting(uint256 proposalId) external proposalExists(proposalId) {
+    function closeVoting(uint256 proposalId) public proposalExists(proposalId) {
         Proposal storage p = proposals[proposalId];
 
         if (p.status != ProposalStatus.ACTIVE)
             revert WrongStatus(proposalId, ProposalStatus.ACTIVE, p.status);
-        require(block.number > p.endBlock, "voting window still open");
+        if (block.number <= p.endBlock)
+            revert VotingWindowStillOpen(proposalId, block.number, p.endBlock);
 
         if (p.voteCount < p.minVoterThreshold) {
             p.status      = ProposalStatus.CANCELLED;
@@ -452,93 +466,99 @@ contract PrivateVoting {
             revert AlreadySubmittedPartial(proposalId, msg.sender);
 
         // Validate each partial decryption point is on the curve
-        uint256 optionCount = p.options.length;
-        for (uint256 i = 0; i < optionCount; i++) {
+        for (uint256 i = 0; i < MAX_OPTIONS; i++) {
             if (!_isOnCurve(partials[i][0], partials[i][1])) revert InvalidPoint();
             p.partialDecryptions[idx][i][0] = partials[i][0];
             p.partialDecryptions[idx][i][1] = partials[i][1];
         }
 
         _partialSubmitted[proposalId][idx] = true;
-        p.partialCount++;
 
         emit PartialDecryptionSubmitted(proposalId, msg.sender, idx);
+
+        p.partialCount++;
     }
 
     // =========================================================================
-    // finalizeResult
+    // submitFinalTally
     // =========================================================================
 
-    /**
-     * @notice Combines partial decryptions to recover the plaintext tally.
-     *
-     * Can be called by anyone once all NUM_KEYHOLDERS partial decryptions
-     * have been submitted.
-     *
-     * For each option i, the recovery formula is:
-     *   c1^x = D_0 + D_1 + D_2          (sum of partial decryptions, point add)
-     *   M*G   = c2 - c1^x               (ElGamal decryption: c2 - c1^x)
-     *
-     * M*G is a point encoding the plaintext weighted sum M.
-     * We recover M by baby-step giant-step discrete log over BabyJubJub.
-     * Because vote weights are bounded (max claimedBalance per voter, min 10 voters),
-     * the search space is at most totalVoters × maxBalance which is bounded.
-     *
-     * The winning option is the one with the highest M.
-     *
-     * @param proposalId   The proposal to finalize.
-     * @param maxTally     Off-chain hint: upper bound on the winning tally.
-     *                     The contract does a brute-force discrete log search
-     *                     from 0 to maxTally. Caller must set this high enough
-     *                     to include the true answer, but not so high it runs
-     *                     out of gas. Recommended: voteCount × maxTokenBalance.
-     */
-    function finalizeResult(
+    // instead of computing discrete log on-chain in _finalizeResult
+    // just store the decrypted POINT (mg) and let anyone submit the result
+
+    // add a separate function:
+    function submitFinalTally(
         uint256 proposalId,
-        uint256 maxTally
+        uint256[MAX_OPTIONS] calldata tallies
     ) external proposalExists(proposalId) {
         Proposal storage p = proposals[proposalId];
-
         if (p.status != ProposalStatus.ENDED)
             revert WrongStatus(proposalId, ProposalStatus.ENDED, p.status);
-        require(p.partialCount == NUM_KEYHOLDERS, "not all partial decryptions submitted");
-        require(maxTally > 0 && maxTally <= 1_000_000, "maxTally out of range");
+        if (p.partialCount != NUM_KEYHOLDERS)
+            revert NotEnoughVoters(p.partialCount, NUM_KEYHOLDERS);
 
-        uint256 optionCount  = p.options.length;
-        uint256 winningOpt   = 0;
+        uint256 optionCount = p.options.length;
+        uint256 winningOpt = 0;
         uint256 winningTally = 0;
 
         for (uint256 i = 0; i < optionCount; i++) {
-            // Step A: sum all partial decryptions for option i → c1^x
+            // verify: tallies[i] * G == mg (computed from partial decryptions)
             uint256[2] memory c1x = _sumPartials(p, i);
-
-            // Step B: recover M*G = c2 - c1^x = c2 + (-(c1^x))
-            //   Negation on twisted-Edwards: -(x, y) = (-x mod p, y)
-            uint256[2] memory c2 = [
-                p.encryptedTally[i].c2[0],
-                p.encryptedTally[i].c2[1]
-            ];
             uint256[2] memory neg_c1x = [
                 c1x[0] == 0 ? 0 : BABYJUB_MODULUS - c1x[0],
                 c1x[1]
             ];
-            uint256[2] memory mg = _pointAdd(c2, neg_c1x);
+            uint256[2] memory mg = _pointAdd(
+                [p.encryptedTally[i].c2[0], p.encryptedTally[i].c2[1]],
+                neg_c1x
+            );
 
-            // Step C: discrete log — find M such that M*Base8 == mg
-            uint256 tally = _discreteLog(mg, maxTally);
-            p.finalResult[i] = tally;
+            // verify tallies[i] * G == mg
+            uint256[2] memory check = _pointMulScalar(tallies[i]);
+            require(check[0] == mg[0] && check[1] == mg[1], "wrong tally");
 
-            if (tally > winningTally) {
-                winningTally = tally;
-                winningOpt   = i;
+            p.finalResult[i] = tallies[i];
+            if (tallies[i] > winningTally) {
+                winningTally = tallies[i];
+                winningOpt = i;
             }
         }
 
         p.winningOption = winningOpt;
-        p.status        = ProposalStatus.REVEALED;
-
+        p.status = ProposalStatus.REVEALED;
         emit ResultRevealed(proposalId, winningOpt);
     }
+
+    function _pointMulScalar(uint256 scalar)
+        internal view returns (uint256[2] memory result)
+    {
+        result = [uint256(0), uint256(1)]; // identity
+        uint256[2] memory addend = [BABYJUB_GX, BABYJUB_GY];
+
+        while (scalar > 0) {
+            if (scalar & 1 == 1) result = _pointAdd(result, addend);
+            addend = _pointAdd(addend, addend);
+            scalar >>= 1;
+        }
+    }
+
+    function _sumPartials(
+        Proposal storage p,
+        uint256 optionIndex
+    ) internal view returns (uint256[2] memory) {
+        uint256[2] memory acc = [uint256(0), uint256(1)]; // identity
+
+        for (uint256 k = 0; k < NUM_KEYHOLDERS; k++) {
+            uint256[2] memory partialPt = [
+                p.partialDecryptions[k][optionIndex][0],
+                p.partialDecryptions[k][optionIndex][1]
+            ];
+            acc = _pointAdd(acc, partialPt);
+        }
+
+        return acc;
+    }
+
 
     // =========================================================================
     // View: get results
@@ -598,8 +618,10 @@ contract PrivateVoting {
     ) internal pure {
         for (uint256 i = 0; i < MAX_OPTIONS; i++) {
             uint256 base = 4 + i * 4;
-            require(encVote[i][0][0] == pubSignals[base],     "c1.x mismatch");
-            require(encVote[i][0][1] == pubSignals[base + 1], "c1.y mismatch");
+            if (encVote[i][0][0] != pubSignals[base])
+                revert C1XMismatch(i, pubSignals[base], encVote[i][0][0]);
+            if (encVote[i][0][1] != pubSignals[base + 1])
+                revert C1YMismatch(i, pubSignals[base + 1], encVote[i][0][1]);
         }
     }
 
@@ -609,8 +631,10 @@ contract PrivateVoting {
     ) internal pure {
         for (uint256 i = 0; i < MAX_OPTIONS; i++) {
             uint256 base = 4 + i * 4;
-            require(encVote[i][1][0] == pubSignals[base + 2], "c2.x mismatch");
-            require(encVote[i][1][1] == pubSignals[base + 3], "c2.y mismatch");
+            if (encVote[i][1][0] != pubSignals[base + 2])
+                revert C2XMismatch(i, pubSignals[base + 2], encVote[i][1][0]);
+            if (encVote[i][1][1] != pubSignals[base + 3])
+                revert C2YMismatch(i, pubSignals[base + 3], encVote[i][1][1]);
         }
     }
 
@@ -642,59 +666,9 @@ contract PrivateVoting {
         p.encryptedTally[optionIndex].c2[1] = newc2[1];
     }
 
-    // =========================================================================
-    // Internal: finalizeResult helpers
-    // =========================================================================
+    
 
-    /**
-     * @dev Sums partial decryptions for one option across all keyholders.
-     *      result = D_0 + D_1 + D_2  (point addition)
-     */
-    function _sumPartials(
-        Proposal storage p,
-        uint256 optionIndex
-    ) internal view returns (uint256[2] memory) {
-        uint256[2] memory acc = [uint256(0), uint256(1)]; // identity
-
-        for (uint256 k = 0; k < NUM_KEYHOLDERS; k++) {
-            uint256[2] memory partialPt = [
-                p.partialDecryptions[k][optionIndex][0],
-                p.partialDecryptions[k][optionIndex][1]
-            ];
-            acc = _pointAdd(acc, partialPt);
-        }
-
-        return acc;
-    }
-
-    /**
-     * @dev Brute-force discrete log: finds M in [0, maxTally] such that M*Base8 == target.
-     *
-     *      Iterates M = 0, 1, 2, ... and checks if M*Base8 == target.
-     *      Feasible because vote tallies are bounded (each voter uses at most
-     *      their token balance as weight, and there's a finite number of voters).
-     *
-     *      Gas cost: O(maxTally) point additions. Keep maxTally ≤ 1,000,000.
-     *      For larger ranges, do this off-chain and submit the result separately.
-     *
-     *      Returns 0 if not found (should not happen with a correct maxTally).
-     */
-    function _discreteLog(
-        uint256[2] memory target,
-        uint256 maxTally
-    ) internal pure returns (uint256) {
-        // M=0 case: 0*G = identity (0,1)
-        if (target[0] == 0 && target[1] == 1) return 0;
-
-        uint256[2] memory current = [BABYJUB_GX, BABYJUB_GY]; // 1*Base8
-
-        for (uint256 m = 1; m <= maxTally; m++) {
-            if (current[0] == target[0] && current[1] == target[1]) return m;
-            current = _pointAdd(current, [BABYJUB_GX, BABYJUB_GY]);
-        }
-
-        return 0; // not found within range
-    }
+    
 
     // =========================================================================
     // Internal: BabyJubJub curve arithmetic
@@ -715,7 +689,7 @@ contract PrivateVoting {
     function _pointAdd(
         uint256[2] memory pt1,
         uint256[2] memory pt2
-    ) internal pure returns (uint256[2] memory result) {
+    ) internal view returns (uint256[2] memory result) {
         result[0] = _pointAddX(pt1, pt2);
         result[1] = _pointAddY(pt1, pt2);
     }
@@ -723,7 +697,7 @@ contract PrivateVoting {
     function _pointAddX(
         uint256[2] memory pt1,
         uint256[2] memory pt2
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 p         = BABYJUB_MODULUS;
         uint256 x1x2      = mulmod(pt1[0], pt2[0], p);
         uint256 y1y2      = mulmod(pt1[1], pt2[1], p);
@@ -736,7 +710,7 @@ contract PrivateVoting {
     function _pointAddY(
         uint256[2] memory pt1,
         uint256[2] memory pt2
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 p         = BABYJUB_MODULUS;
         uint256 x1x2      = mulmod(pt1[0], pt2[0], p);
         uint256 y1y2      = mulmod(pt1[1], pt2[1], p);
@@ -746,29 +720,25 @@ contract PrivateVoting {
         return mulmod(num, _modInverse(den, p), p);
     }
 
-    function _modInverse(uint256 a, uint256 m) internal pure returns (uint256) {
-        require(a != 0, "PrivateVoting: inverse of zero");
+    function _modInverse(uint256 a, uint256 m) internal view returns (uint256) {
+        if (a == 0) revert InverseOfZero();
         a = a % m;
-        require(a != 0, "PrivateVoting: inverse of zero mod m");
+        if (a == 0) revert InverseOfZero();
         if (a == 1) return 1;
 
-        uint256 t    = 0;
-        uint256 newt = 1;
-        uint256 r    = m;
-        uint256 newr = a;
-
-        while (newr != 0) {
-            uint256 q    = r / newr;
-            uint256 tmp  = newt;
-            uint256 qmod = mulmod(q, newt, m);
-            newt = t >= qmod ? t - qmod : m - qmod + t;
-            t    = tmp;
-            tmp  = newr;
-            newr = r - q * newr;
-            r    = tmp;
-        }
-        return t;
+        bytes memory input = abi.encodePacked(
+            uint256(32),   // base length
+            uint256(32),   // exp length
+            uint256(32),   // mod length
+            a,
+            m - 2,         // Fermat: a^(p-2) mod p = a^-1
+            m
+        );
+        (bool ok, bytes memory result) = address(5).staticcall(input);
+        require(ok, "modexp failed");
+        return abi.decode(result, (uint256));
     }
+
 
     function _keyholderIndex(address addr) internal view returns (uint256) {
         for (uint256 i = 0; i < NUM_KEYHOLDERS; i++) {
@@ -781,7 +751,7 @@ contract PrivateVoting {
     // Internal: DKG finalization
     // =========================================================================
 
-    function _finalizeElectionKey(uint256 proposalId) internal {
+    function _finalizeElectionKey(uint256 proposalId) private {
         Proposal storage p = proposals[proposalId];
         uint256[2] memory combined = _sumShares(p);
         p.electionPublicKey[0] = combined[0];
