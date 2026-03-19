@@ -12,7 +12,8 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "dotenv": "^17.3.1"
+    "dotenv": "^17.3.1",
+    "ethers": "^6.16.0"
   },
   "dependencies": {
     "circomlib": "^2.0.5",
