@@ -12,23 +12,36 @@ import {
 import { useVoting } from '../context/VotingContext';
 import { formatUtils } from '../utils/contractUtils';
 
+const monoFont = '"Share Tech Mono", "JetBrains Mono", "Courier New", monospace';
+const bodyFont = '"IBM Plex Mono", "Courier New", monospace';
+
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userAddress, connectWallet, isKeyholder } = useVoting();
-  const [anchorEl, setAnchorEl] = useState(null);
+  const { userAddress, connectWallet, disconnectWallet, isKeyholder, keyholderIndex } = useVoting();
 
-  const handleMenuOpen = (event) => setAnchorEl(event.currentTarget);
-  const handleMenuClose = () => setAnchorEl(null);
+  const [anchorEl,   setAnchorEl]   = useState(null);
+  const [connecting, setConnecting] = useState(false);
+  const [connectErr, setConnectErr] = useState(null);
+
+  const handleMenuOpen  = (e) => setAnchorEl(e.currentTarget);
+  const handleMenuClose = ()  => setAnchorEl(null);
 
   const handleConnect = async () => {
-    const mockAddress = `0x${Math.random().toString(16).slice(2).padEnd(40, '0')}`;
-    connectWallet(mockAddress);
+    setConnecting(true);
+    setConnectErr(null);
     handleMenuClose();
+    try {
+      await connectWallet();
+    } catch (err) {
+      setConnectErr(err.message ?? 'connection failed');
+    } finally {
+      setConnecting(false);
+    }
   };
 
   const handleDisconnect = () => {
-    connectWallet(null);
+    disconnectWallet();
     handleMenuClose();
   };
 
@@ -37,20 +50,28 @@ const Navigation = () => {
   const navLinks = [
     { label: 'dashboard', path: '/' },
     { label: 'proposals', path: '/proposals' },
-    { label: 'create', path: '/create-proposal' },
-    { label: 'archive', path: '/archive' },
+    { label: 'create',    path: '/create-proposal' },
+    { label: 'archive',   path: '/archive' },
     ...(isKeyholder ? [{ label: 'decrypt', path: '/decryption' }] : []),
   ];
+
+  const menuItemsSx = {
+    fontFamily: monoFont,
+    fontSize: '0.68rem',
+    color: '#64748b',
+    letterSpacing: '0.08em',
+    py: 1.25,
+  };
 
   return (
     <AppBar
       position="sticky"
       elevation={0}
       sx={{
-        background: '#0a0a0a',
-        borderBottom: '1px solid rgba(0, 245, 212, 0.15)',
-        backgroundImage:
-          'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.015) 3px, rgba(0,245,212,0.015) 4px)',
+        background: '#080c10',
+        borderBottom: '1px solid #1e2a35',
+        backgroundImage: 'none',
+        boxShadow: 'none',
       }}
     >
       <Toolbar
@@ -58,61 +79,38 @@ const Navigation = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          py: 1,
-          px: { xs: 2, md: 4 },
-          minHeight: '56px !important',
+          py: 0,
+          px: { xs: 2, md: 3 },
+          minHeight: '52px !important',
         }}
       >
         {/* Logo */}
         <Box
           onClick={() => navigate('/')}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            cursor: 'pointer',
-            userSelect: 'none',
+            display: 'flex', alignItems: 'center', gap: '6px',
+            cursor: 'pointer', userSelect: 'none', flexShrink: 0,
           }}
         >
-          <Typography
-            sx={{
-              fontFamily: '"JetBrains Mono", "Courier New", monospace',
-              fontWeight: 700,
-              fontSize: '0.8rem',
-              color: 'rgba(0,245,212,0.4)',
-              letterSpacing: '0.05em',
-            }}
-          >
-            
+          <Typography sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#334155', letterSpacing: '0.08em' }}>
+            &gt;
           </Typography>
-          <Typography
-            sx={{
-              fontFamily: '"JetBrains Mono", "Courier New", monospace',
-              fontWeight: 700,
-              fontSize: '1rem',
-              color: '#00f5d4',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              '&:hover': {
-                textShadow: '0 0 12px rgba(0,245,212,0.8)',
-              },
-              transition: 'text-shadow 0.2s',
-            }}
-          >
-            PrivaVote
+          <Typography sx={{
+            fontFamily: monoFont, fontWeight: 400, fontSize: '0.85rem',
+            color: '#00f5d4', letterSpacing: '0.1em', textTransform: 'uppercase',
+            transition: 'text-shadow 0.2s',
+            '&:hover': { textShadow: '0 0 10px rgba(0,245,212,0.7)' },
+          }}>
+            PRIVAVOTE
           </Typography>
         </Box>
 
-        {/* Nav Links */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0,
-            borderLeft: '1px solid rgba(0,245,212,0.1)',
-            borderRight: '1px solid rgba(0,245,212,0.1)',
-          }}
-        >
+        {/* Nav links */}
+        <Box sx={{
+          display: 'flex', alignItems: 'stretch',
+          borderLeft: '1px solid #1e2a35', borderRight: '1px solid #1e2a35',
+          height: '52px',
+        }}>
           {navLinks.map(({ label, path }) => {
             const active = isActive(path);
             return (
@@ -121,111 +119,111 @@ const Navigation = () => {
                 onClick={() => navigate(path)}
                 disableRipple
                 sx={{
-                  fontFamily: '"JetBrains Mono", "Courier New", monospace',
-                  fontSize: '0.78rem',
-                  fontWeight: active ? 700 : 400,
-                  textTransform: 'lowercase',
-                  letterSpacing: '0.08em',
-                  color: active ? '#00f5d4' : 'rgba(226,232,240,0.45)',
-                  background: active ? 'rgba(0,245,212,0.05)' : 'transparent',
+                  fontFamily: monoFont,
+                  fontSize: '0.62rem',
+                  fontWeight: 400,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.12em',
+                  color: active ? '#00f5d4' : '#64748b',
+                  background: 'transparent',
                   borderRadius: 0,
-                  borderBottom: active ? '1px solid #00f5d4' : '1px solid transparent',
-                  borderRight: '1px solid rgba(0,245,212,0.08)',
-                  px: 2.5,
-                  py: 1.75,
-                  minWidth: 0,
-                  transition: 'all 0.15s',
+                  borderBottom: active ? '2px solid #00f5d4' : '2px solid transparent',
+                  borderRight: '1px solid #1e2a35',
+                  px: 2, py: 0, minWidth: 0, height: '100%',
+                  transition: 'color 0.15s, border-color 0.15s',
                   '&:hover': {
-                    color: '#00f5d4',
-                    background: 'rgba(0,245,212,0.04)',
-                    borderBottom: '1px solid rgba(0,245,212,0.4)',
+                    color: '#e2e8f0',
+                    background: 'transparent',
+                    borderBottom: active ? '2px solid #00f5d4' : '2px solid rgba(0,245,212,0.2)',
                   },
-                  '&:last-child': {
-                    borderRight: 'none',
-                  },
+                  '&:last-child': { borderRight: 'none' },
                 }}
               >
-                {active ? `> ${label}` : `  ${label}`}
+                {active ? `[${label}]` : label}
               </Button>
             );
           })}
         </Box>
 
-        {/* Wallet */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {/* Wallet area */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
           {isKeyholder && userAddress && (
-            <Typography
-              sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.7rem',
-                color: '#39ff14',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                textShadow: '0 0 8px rgba(57,255,20,0.5)',
-                mr: 1,
-              }}
-            >
+            <Typography sx={{
+              fontFamily: monoFont, fontSize: '0.58rem', color: '#39ff14',
+              letterSpacing: '0.14em', border: '1px solid rgba(57,255,20,0.35)',
+              borderRadius: '2px', px: 0.75, py: 0.25,
+              animation: 'glowPulse 2s ease-in-out infinite',
+              '@keyframes glowPulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.4 } },
+            }}>
               [KEYHOLDER]
             </Typography>
           )}
 
+          {connectErr && (
+            <Typography sx={{
+              fontFamily: bodyFont, fontSize: '0.6rem', color: '#ff3c3c',
+              letterSpacing: '0.04em', maxWidth: '160px',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              &gt; {connectErr}
+            </Typography>
+          )}
+
+          {/* Single-click connect when not connected, dropdown when connected */}
           <Button
-            onClick={handleMenuOpen}
+            onClick={userAddress ? handleMenuOpen : handleConnect}
             disableRipple
             sx={{
-              fontFamily: '"JetBrains Mono", "Courier New", monospace',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              textTransform: 'lowercase',
-              letterSpacing: '0.06em',
+              fontFamily: monoFont, fontSize: '0.62rem', fontWeight: 400,
+              textTransform: 'uppercase', letterSpacing: '0.12em',
               color: userAddress ? '#e2e8f0' : '#00f5d4',
-              background: 'transparent',
-              border: '1px solid',
-              borderColor: userAddress ? 'rgba(226,232,240,0.15)' : 'rgba(0,245,212,0.4)',
-              borderRadius: '2px',
-              px: 2,
-              py: 0.75,
+              background: 'transparent', border: '1px solid',
+              borderColor: userAddress ? '#2e3e4d' : 'rgba(0,245,212,0.4)',
+              borderRadius: '2px', px: 1.5, py: 0.6,
               transition: 'all 0.15s',
               '&:hover': {
-                borderColor: '#00f5d4',
-                color: '#00f5d4',
+                borderColor: '#00f5d4', color: '#00f5d4',
                 background: 'rgba(0,245,212,0.05)',
-                boxShadow: '0 0 10px rgba(0,245,212,0.15)',
+                boxShadow: '0 0 8px rgba(0,245,212,0.3)',
               },
             }}
           >
-            {userAddress ? (
+            {connecting ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: '#39ff14',
-                    boxShadow: '0 0 6px rgba(57,255,20,0.8)',
-                    flexShrink: 0,
-                  }}
-                />
-                <Typography
-                  component="span"
-                  sx={{
-                    fontFamily: '"JetBrains Mono", monospace',
-                    fontSize: '0.75rem',
-                    color: 'rgba(226,232,240,0.7)',
-                    mr: 0.5,
-                  }}
-                >
+                <Box sx={{
+                  width: '48px', height: '2px', background: '#1e2a35',
+                  borderRadius: '2px', overflow: 'hidden', position: 'relative',
+                }}>
+                  <Box sx={{
+                    position: 'absolute', top: 0, bottom: 0, width: '16px',
+                    background: '#00f5d4',
+                    animation: 'scanProg 1s linear infinite',
+                    '@keyframes scanProg': { '0%': { left: '-20px' }, '100%': { left: '100%' } },
+                  }} />
+                </Box>
+                connecting...
+              </Box>
+            ) : userAddress ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Box sx={{
+                  width: 5, height: 5, borderRadius: '50%',
+                  background: '#39ff14', boxShadow: '0 0 5px rgba(57,255,20,0.8)',
+                  flexShrink: 0,
+                }} />
+                <Typography component="span" sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#334155', mr: '2px' }}>
                   $
                 </Typography>
-                {formatUtils.formatAddress(userAddress)}
+                <Typography component="span" sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#64748b', letterSpacing: '0.04em' }}>
+                  {formatUtils.formatAddress(userAddress)}
+                </Typography>
               </Box>
             ) : (
-              '[ connect wallet ]'
+              '[ CONNECT WALLET ]'
             )}
           </Button>
         </Box>
 
-        {/* Dropdown Menu */}
+        {/* Dropdown — only shown when connected */}
         <Menu
           anchorEl={anchorEl}
           open={Boolean(anchorEl)}
@@ -233,87 +231,77 @@ const Navigation = () => {
           PaperProps={{
             sx: {
               background: '#0d1117',
-              border: '1px solid rgba(0,245,212,0.2)',
+              border: '1px solid #1e2a35',
               borderRadius: '2px',
-              boxShadow: '0 0 24px rgba(0,245,212,0.08)',
-              mt: 0.5,
-              minWidth: 200,
-              backgroundImage:
-                'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+              boxShadow: '0 0 20px rgba(0,0,0,0.6)',
+              mt: '4px',
+              minWidth: 240,
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
             },
           }}
           transformOrigin={{ horizontal: 'right', vertical: 'top' }}
           anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         >
-          {!userAddress ? (
+          {[
             <MenuItem
-              onClick={handleConnect}
+              key="address"
+              disabled
               sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.8rem',
-                color: '#00f5d4',
-                letterSpacing: '0.06em',
-                py: 1.5,
-                '&:hover': {
-                  background: 'rgba(0,245,212,0.07)',
-                },
+                fontFamily: bodyFont, fontSize: '0.68rem',
+                color: '#64748b', letterSpacing: '0.06em',
+                py: 1, borderBottom: '1px solid #1e2a35',
+                opacity: '1 !important',
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'flex-start', gap: '2px',
               }}
             >
-              &gt; connect_wallet()
-            </MenuItem>
-          ) : (
-            <>
+              <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#334155', letterSpacing: '0.12em' }}>
+                CONNECTED
+              </Typography>
+              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.68rem', color: '#64748b', letterSpacing: '0.04em', wordBreak: 'break-all' }}>
+                $ {userAddress}
+              </Typography>
+            </MenuItem>,
+
+            isKeyholder && (
               <MenuItem
+                key="keyholder"
                 disabled
                 sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '0.72rem',
-                  color: 'rgba(226,232,240,0.35)',
-                  letterSpacing: '0.04em',
-                  py: 1,
-                  borderBottom: '1px solid rgba(0,245,212,0.08)',
+                  fontFamily: monoFont, fontSize: '0.65rem',
+                  color: '#39ff14', letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  py: 0.75, borderBottom: '1px solid #1e2a35',
                   opacity: '1 !important',
                 }}
               >
-                {formatUtils.formatAddress(userAddress)}
+                role: [KEYHOLDER]{keyholderIndex !== null ? ` — idx ${keyholderIndex}` : ''}
               </MenuItem>
+            ),
 
-              {isKeyholder && (
-                <MenuItem
-                  disabled
-                  sx={{
-                    fontFamily: '"JetBrains Mono", monospace',
-                    fontSize: '0.72rem',
-                    color: '#39ff14',
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    py: 1,
-                    borderBottom: '1px solid rgba(0,245,212,0.08)',
-                    opacity: '1 !important',
-                  }}
-                >
-                  role: keyholder
-                </MenuItem>
-              )}
+            <MenuItem
+              key="switch"
+              onClick={handleConnect}
+              sx={{
+                ...menuItemsSx,
+                '&:hover': { background: 'rgba(0,245,212,0.05)', color: '#00f5d4' },
+              }}
+            >
+              &gt; switch_account()
+            </MenuItem>,
 
-              <MenuItem
-                onClick={handleDisconnect}
-                sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '0.8rem',
-                  color: 'rgba(226,232,240,0.55)',
-                  letterSpacing: '0.06em',
-                  py: 1.5,
-                  '&:hover': {
-                    background: 'rgba(255,60,60,0.07)',
-                    color: '#ff3c3c',
-                  },
-                }}
-              >
-                &gt; disconnect()
-              </MenuItem>
-            </>
-          )}
+            <MenuItem
+              key="disconnect"
+              onClick={handleDisconnect}
+              sx={{
+                ...menuItemsSx,
+                borderTop: '1px solid #1e2a35',
+                '&:hover': { background: 'rgba(255,60,60,0.06)', color: '#ff3c3c' },
+              }}
+            >
+              &gt; disconnect()
+            </MenuItem>,
+          ].filter(Boolean)}
         </Menu>
       </Toolbar>
     </AppBar>

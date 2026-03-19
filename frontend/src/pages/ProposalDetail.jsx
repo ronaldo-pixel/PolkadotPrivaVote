@@ -12,7 +12,7 @@ import ProposalStatusTimeline from '../components/ProposalStatusTimeline';
 import VoteForm from '../components/VoteForm';
 import { formatUtils } from '../utils/contractUtils';
 
-const monoFont = '"JetBrains Mono", "Courier New", monospace';
+const monoFont = "JetBrains Mono";
 
 const STATUS_COLOR = {
   ACTIVE:      '#00f5d4',
@@ -34,8 +34,8 @@ const SectionLabel = ({ children }) => (
   <Typography
     sx={{
       fontFamily: monoFont,
-      fontSize: '0.68rem',
-      color: 'rgba(226,232,240,0.25)',
+      fontSize: '1rem',
+      color: 'rgba(255, 255, 255, 1)',
       letterSpacing: '0.12em',
       textTransform: 'uppercase',
       mb: 2,
@@ -98,8 +98,8 @@ const ProposalDetail = () => {
             sx={{
               fontFamily: monoFont,
               fontWeight: 700,
-              fontSize: '1.4rem',
-              color: '#e2e8f0',
+              fontSize: '1.8rem',
+              color: '#00f5d4',
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
             }}
@@ -110,7 +110,7 @@ const ProposalDetail = () => {
           <Typography
             sx={{
               fontFamily: monoFont,
-              fontSize: '0.72rem',
+              fontSize: '1.0rem',
               fontWeight: 700,
               letterSpacing: '0.12em',
               color: accentColor,
@@ -137,20 +137,8 @@ const ProposalDetail = () => {
         <Typography
           sx={{
             fontFamily: monoFont,
-            fontSize: '0.72rem',
-            color: 'rgba(226,232,240,0.3)',
-            letterSpacing: '0.04em',
-            mb: 1.5,
-          }}
-        >
-          $ {formatUtils.formatAddress(proposal.creator)}
-        </Typography>
-
-        <Typography
-          sx={{
-            fontFamily: monoFont,
-            fontSize: '0.9rem',
-            color: 'rgba(226,232,240,0.75)',
+            fontSize: '1.2rem',
+            color: '#00f5d4',
             lineHeight: 1.65,
             letterSpacing: '0.02em',
           }}
@@ -192,7 +180,7 @@ const ProposalDetail = () => {
                 sx={{
                   fontFamily: monoFont,
                   fontSize: '0.62rem',
-                  color: 'rgba(226,232,240,0.2)',
+                  color: '#00f5d4',
                   letterSpacing: '0.1em',
                   textTransform: 'uppercase',
                   mb: 0.75,
@@ -215,7 +203,7 @@ const ProposalDetail = () => {
                 sx={{
                   fontFamily: monoFont,
                   fontSize: '0.65rem',
-                  color: 'rgba(226,232,240,0.2)',
+                  color: 'rgb(155, 155, 155)',
                   letterSpacing: '0.04em',
                 }}
               >
@@ -242,7 +230,7 @@ const ProposalDetail = () => {
               onClick={() => setActiveTab(tab)}
               sx={{
                 fontFamily: monoFont,
-                fontSize: '0.75rem',
+                fontSize: '1rem',
                 letterSpacing: '0.08em',
                 textTransform: 'lowercase',
                 color: active ? '#00f5d4' : 'rgba(226,232,240,0.3)',
@@ -274,7 +262,7 @@ const ProposalDetail = () => {
               'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
           }}
         >
-          <SectionLabel>/* vote distribution */</SectionLabel>
+          <SectionLabel>Vote Distribution </SectionLabel>
 
           {proposal.status === 'ENDED' ? (
             <Box sx={{ borderLeft: '2px solid #94a3b8', pl: 1.5 }}>
@@ -282,7 +270,7 @@ const ProposalDetail = () => {
                 sx={{
                   fontFamily: monoFont,
                   fontSize: '0.75rem',
-                  color: '#94a3b8',
+                  color: '#00f5d4',
                   letterSpacing: '0.04em',
                 }}
               >
@@ -295,7 +283,7 @@ const ProposalDetail = () => {
                 <Typography
                   sx={{
                     fontFamily: monoFont,
-                    fontSize: '0.7rem',
+                    fontSize: '1rem',
                     color: 'rgba(226,232,240,0.2)',
                     letterSpacing: '0.04em',
                     mb: 2.5,
@@ -321,13 +309,14 @@ const ProposalDetail = () => {
                       <Typography
                         sx={{
                           fontFamily: monoFont,
-                          fontSize: '0.78rem',
-                          color: isWinner ? '#39ff14' : 'rgba(226,232,240,0.65)',
+                          fontSize: '1.0rem',
+                          mb: 1,
+                          color: isWinner ? '#39ff14' : 'rgba(255, 255, 255, 1)',
                           fontWeight: isWinner ? 700 : 400,
                           textShadow: isWinner ? '0 0 8px rgba(57,255,20,0.4)' : 'none',
                         }}
                       >
-                        [{idx + 1}] {option}
+                        {option}
                         {isWinner && (
                           <Box
                             component="span"
@@ -401,24 +390,24 @@ const ProposalDetail = () => {
               'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
           }}
         >
-          <SectionLabel>/* proposal details */</SectionLabel>
+          <SectionLabel>Proposal Details</SectionLabel>
 
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6}>
               <Box sx={dataBox}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>start_block</Typography>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: 'rgba(226,232,240,0.6)' }}>#{proposal.startBlock}</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgb(255, 255, 255)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>start block</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: 'rgba(255, 255, 255, 1)' }}>#{proposal.startBlock}</Typography>
               </Box>
             </Grid>
             <Grid item xs={12} sm={6}>
               <Box sx={dataBox}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>end_block</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(255, 255, 255, 1)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>end block</Typography>
                 <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: '#ff3c3c' }}>#{proposal.endBlock}</Typography>
               </Box>
             </Grid>
             <Grid item xs={12}>
               <Box sx={{ ...dataBox, height: 'auto' }}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(226,232,240,0.2)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 1 }}>voting_options</Typography>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(255, 255, 255, 1)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 1 }}>voting options</Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
                   {proposal.options.map((option, idx) => (
                     <Typography
@@ -426,14 +415,14 @@ const ProposalDetail = () => {
                       sx={{
                         fontFamily: monoFont,
                         fontSize: '0.72rem',
-                        color: 'rgba(226,232,240,0.5)',
+                        color: 'rgba(255, 255, 255,1)',
                         border: '1px solid rgba(226,232,240,0.1)',
                         px: 1,
                         py: 0.25,
                         lineHeight: 1.6,
                       }}
                     >
-                      [{idx + 1}] {option}
+                       {option}
                     </Typography>
                   ))}
                 </Box>
@@ -448,6 +437,7 @@ const ProposalDetail = () => {
         <Box
           sx={{
             background: '#0d1117',
+            fontSize:'1.0rem',
             border: '1px solid rgba(226,232,240,0.08)',
             borderLeft: '3px solid rgba(0,245,212,0.4)',
             borderRadius: '2px',

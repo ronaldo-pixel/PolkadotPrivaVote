@@ -108,16 +108,16 @@ const Dashboard = () => {
         <Box sx={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 2rem' }}>
           <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
             {'> /dashboard'}
+          </Box>
+
+          <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '1.6rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase', mb: '0.3rem' }}>
+            SYSTEM STATUS
             <Box component="span" sx={{
               display: 'inline-block', width: '6px', height: '0.8em',
               background: '#00f5d4', ml: '3px', verticalAlign: 'middle',
               animation: 'blink 1s step-end infinite',
               '@keyframes blink': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0 } },
             }} />
-          </Box>
-
-          <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '1.6rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase', mb: '0.3rem' }}>
-            SYSTEM STATUS
           </Typography>
           <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#1e2a35', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none', my: '1rem' }}>
             {'─'.repeat(120)}
@@ -145,23 +145,18 @@ const Dashboard = () => {
 
         <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
           {'> /dashboard'}
-          <Box component="span" sx={{
-            display: 'inline-block', width: '6px', height: '0.8em',
-            background: '#00f5d4', ml: '3px', verticalAlign: 'middle',
-            animation: 'blink 1s step-end infinite',
-            '@keyframes blink': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0 } },
-          }} />
+          
         </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: '0.75rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <Box>
+          <Box >
             <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '1.6rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase', mb: '0.3rem' }}>
               SYSTEM STATUS
+              <Box component="span" sx={{display: 'inline-block',width: '6px',height: '0.8em',background: '#00f5d4',ml: '6px',verticalAlign: 'middle',animation: 'blink 1s step-end infinite','@keyframes blink': {'0%,100%': { opacity: 1 },'50%': { opacity: 0 }},}} />
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em' }}>
-                $ {formatUtils.formatAddress(userAddress)}
-              </Typography>
+            <Box >
+              
+             
               {isKeyholder && (
                 <Typography sx={{
                   fontFamily: monoFont,
@@ -211,8 +206,8 @@ const Dashboard = () => {
           {'─'.repeat(120)}
         </Box>
 
-        <Grid container spacing={1.5} sx={{ mb: '2.5rem' }}>
-          <Grid item xs={6} sm={3}>
+        <Grid container alignItems="stretch" spacing={1.5} sx={{ mb: '2.5rem' }}>
+          <Grid item xs={12} sm={6} sx={{ display: 'flex' }}>
             <StatBlock
               value={activeProposals.length}
               label="active proposals"
@@ -220,7 +215,7 @@ const Dashboard = () => {
               onClick={() => navigate('/proposals')}
             />
           </Grid>
-          <Grid item xs={6} sm={3}>
+          <Grid item xs={12} sm={6} sx={{ display: 'flex' }}>
             <StatBlock
               value={userCreatedProposals.length}
               label="proposals created"
@@ -228,63 +223,21 @@ const Dashboard = () => {
               onClick={() => navigate('/archive')}
             />
           </Grid>
-          <Grid item xs={6} sm={3}>
+          <Grid item xs={12} sm={6} sx={{ display: 'flex' }}> 
             <StatBlock
               value={userVotes.length}
               label="votes cast"
               color="#39ff14"
             />
           </Grid>
-          <Grid item xs={6} sm={3}>
-            <Box sx={{
-              background: '#0d1117',
-              border: '1px solid #1e2a35',
-              borderRadius: '2px',
-              padding: '1rem 1.25rem',
-            }}>
-              <Box component="span" sx={{
-                fontFamily: monoFont,
-                fontSize: '1.75rem',
-                color: nullifierPct >= 80 ? '#ffb800' : '#00f5d4',
-                display: 'block',
-                letterSpacing: '0.04em',
-                lineHeight: 1,
-              }}>
-                {nullifierStatus.usedCount}/{nullifierStatus.totalAllocation}
-              </Box>
-              <Box component="span" sx={{
-                fontFamily: monoFont,
-                fontSize: '0.55rem',
-                letterSpacing: '0.15em',
-                color: '#ffffff',
-                textTransform: 'uppercase',
-                mt: '6px',
-                display: 'block',
-              }}>
-                nullifiers used
-              </Box>
-              <Typography sx={{
-                fontFamily: bodyFont,
-                fontSize: '0.68rem',
-                color: nullifierPct >= 100 ? '#39ff14' : nullifierPct >= 80 ? '#ffb800' : '#00f5d4',
-                letterSpacing: '0.02em',
-                userSelect: 'none',
-                mt: '8px',
-              }}>
-                {nullBar} {nullifierPct}%
-              </Typography>
-            </Box>
-          </Grid>
         </Grid>
 
-        <Box sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em', mb: '1rem' }}>
-          {'/* ── ELIGIBLE TO VOTE ── */'}
-        </Box>
+       
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <Typography sx={{ fontFamily: monoFont, fontWeight: 400, fontSize: '0.9rem', color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             ELIGIBLE TO VOTE
-            <Box component="span" sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.08em', ml: 1.5, textTransform: 'none' }}>
+            <Box component="span" sx={{ fontFamily: bodyFont, fontSize: '0.9rem', color: '#ffffff', letterSpacing: '0.08em', ml: 1.5, textTransform: 'none' }}>
               {userEligibleProposals.length} RESULT{userEligibleProposals.length !== 1 ? 'S' : ''}
             </Box>
           </Typography>

@@ -10,6 +10,7 @@ async function main() {
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet   = new ethers.Wallet(process.env.PASEO_PK, provider);
 
+
 console.log("Deployer:", wallet.address);
 
 const balance = await provider.getBalance(wallet.address);
@@ -29,12 +30,8 @@ if (!fs.existsSync(pvmPath) || !fs.existsSync(abiPath)) {
     process.exit(1);
 }
 
-    const contractKey = Object.keys(combined.contracts).find(k => k.includes("contracts/Verifier.sol:Groth16Verifier"));
-    if (!contractKey) {
-        console.error("Groth16Verifier not found in Verifier.json");
-        console.error("Available keys:", Object.keys(combined.contracts));
-        process.exit(1);
-    }
+const bytecode = "0x" + fs.readFileSync(pvmPath).toString("hex");
+const abi      = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 
 console.log("Bytecode size:", (bytecode.length / 2 - 1), "bytes");
 
