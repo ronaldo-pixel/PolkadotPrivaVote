@@ -23,7 +23,7 @@ const path             = require("path");
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const RPC_URL  = process.env.PASEO_RPC_URL || "https://testnet-passet-hub-eth-rpc.polkadot.io";
+const RPC_URL  = process.env.PASEO_RPC_URL ;
 const CONTRACT_ADDRESS = "0x75dA28e24d1faBbe8cD6997A3F19C3E72bb30D31";
 
 // Load ABI from combined JSON
@@ -487,7 +487,7 @@ async function main() {
             "Decryption test",
             ["Alpha", "Beta", "Gamma"],
             0,      // NORMAL
-            2000,   // duration
+            60,   // duration
             0,      // no token gating
             10      // minVoterThreshold
         );
@@ -559,9 +559,7 @@ async function main() {
             base8, epk, weight, 0, nonce, 0, weight
         );
         try {
-            const tx = await contract.connect(voter).castVote(
-                pid2, pA, pB, pC, ps, ev, { gasLimit: 5_000_000n }
-            );
+            
             await waitForTx(tx);
             votescast++;
             info(`  Voter ${v} voted ✓`);
