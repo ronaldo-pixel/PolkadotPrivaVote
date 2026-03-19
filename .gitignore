@@ -17,7 +17,12 @@ node_modules
 ignition/deployments/
 
 circuits/build
+/ignition/modules/cht.md
+contracts/dkg.sol
+dkg.js
+keyholder.js
 
+ignition/modules/deploydkg.js
 !circuits/build/vote_final.zkey
 !circuits/build/verification_key.json
 !circuits/build/vote_js
