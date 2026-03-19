@@ -6,9 +6,6 @@ module.exports = {
     solidity: {
         version: "0.8.28",
         settings: {
-            // viaIR lets the compiler restructure stack layout before codegen.
-            // Required here because BabyJubJub's _modInverse loop exhausts the
-            // 16-slot EVM stack without it. resolc respects this flag.
             viaIR: true,
             optimizer: {
                 enabled: true,
@@ -51,6 +48,11 @@ module.exports = {
             polkavm: true,
             url: "https://testnet-passet-hub-eth-rpc.polkadot.io",
             accounts: [process.env.PASEO_PK],
+            ignition: {
+                maxFeePerGas:         10_000_000_000n, // 10 gwei
+                maxPriorityFeePerGas:  5_000_000_000n, //  5 gwei
+                disableFeeBumping: false,
+            },
         },
         polkadotTestnet: {
             polkavm: true,
@@ -62,8 +64,12 @@ module.exports = {
                 process.env.PASEO_PK_2,
                 process.env.PASEO_PK_3,
             ].filter(Boolean),
-            maxFeePerGas: 30000000000,        // 30 gwei
-            maxPriorityFeePerGas: 2000000000, // 2 gwei
+            // These go INSIDE ignition: {} — top-level gas fields are ignored by Ignition
+            ignition: {
+                maxFeePerGas:         1500000000000, // 10 gwei — covers baseFee fluctuations
+                maxPriorityFeePerGas:  50000000000, //  5 gwei — must be > baseFee (currently 1)
+                disableFeeBumping: false,
+            },
         },
     },
 
