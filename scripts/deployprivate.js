@@ -24,6 +24,8 @@ async function main() {
         fs.readFileSync(path.join(BUILD_DIR, "PrivateVoting.json"), "utf8")
     );
 
+    const contractKey = "contracts/PrivateVoting.sol:PrivateVoting";
+
 
     const contractData = combined.contracts[contractKey];
     const bytecode     = "0x" + contractData.bin;
