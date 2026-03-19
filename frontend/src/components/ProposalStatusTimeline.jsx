@@ -74,18 +74,18 @@ const ProposalStatusTimeline = ({ proposal, currentBlock = 150 }) => {
         <Typography
           sx={{
             fontFamily: '"JetBrains Mono", "Courier New", monospace',
-            fontSize: '0.68rem',
-            color: 'rgba(226,232,240,0.3)',
+            fontSize: '0.99rem',
+            color: 'rgba(255, 255, 255, 1)',
             letterSpacing: '0.12em',
             textTransform: 'uppercase',
           }}
         >
-          /* proposal lifecycle */
+          proposal lifecycle
         </Typography>
         <Typography
           sx={{
-            fontFamily: '"JetBrains Mono", monospace',
-            fontSize: '0.68rem',
+            fontFamily: "JetBrains Mono",
+            fontSize: '1rem',
             fontWeight: 700,
             letterSpacing: '0.12em',
             color: accentColor,
@@ -112,9 +112,9 @@ const ProposalStatusTimeline = ({ proposal, currentBlock = 150 }) => {
         <Box sx={{ mb: 2.5 }}>
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: "JetBrains Mono",
               fontSize: '0.8rem',
-              color: 'rgba(226,232,240,0.25)',
+              color: 'rgba(255, 255, 255, 1)',
               letterSpacing: '0.04em',
             }}
           >
@@ -183,24 +183,16 @@ const ProposalStatusTimeline = ({ proposal, currentBlock = 150 }) => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
             <Typography
               sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.68rem',
-                color: 'rgba(226,232,240,0.3)',
+                fontFamily: "JetBrains Mono",
+                fontSize: '0.90rem',
+                color: 'rgba(255, 255, 255, 1)',
                 letterSpacing: '0.1em',
                 textTransform: 'uppercase',
               }}
             >
               block progress
             </Typography>
-            <Typography
-              sx={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: '0.68rem',
-                color: 'rgba(226,232,240,0.4)',
-              }}
-            >
-              {currentBlock} / {proposal.endBlock}
-            </Typography>
+            
           </Box>
           <Typography
             sx={{
@@ -216,49 +208,7 @@ const ProposalStatusTimeline = ({ proposal, currentBlock = 150 }) => {
         </Box>
       )}
 
-      {/* Block range */}
-      {!isRevealed && !isCancelled && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mb: 2 }}>
-          {[
-            { label: 'start_block', value: `#${proposal.startBlock}`, color: 'rgba(226,232,240,0.55)' },
-            { label: 'end_block',   value: `#${proposal.endBlock}`,   color: '#ff3c3c' },
-          ].map(({ label, value, color }) => (
-            <Box
-              key={label}
-              sx={{
-                p: 1.5,
-                background: 'rgba(0,0,0,0.3)',
-                border: '1px solid rgba(226,232,240,0.06)',
-                borderRadius: '2px',
-              }}
-            >
-              <Typography
-                sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '0.65rem',
-                  color: 'rgba(226,232,240,0.25)',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  mb: 0.5,
-                }}
-              >
-                {label}
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                  color,
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {value}
-              </Typography>
-            </Box>
-          ))}
-        </Box>
-      )}
+      
 
       {/* Status message */}
       {isCancelled && (
@@ -281,7 +231,7 @@ const ProposalStatusTimeline = ({ proposal, currentBlock = 150 }) => {
           <Typography
             sx={{
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: '0.75rem',
+              fontSize: '1.0rem',
               color: '#ffb800',
               letterSpacing: '0.04em',
             }}

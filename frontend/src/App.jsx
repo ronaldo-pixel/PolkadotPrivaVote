@@ -8,7 +8,6 @@ import ProposalList from './pages/ProposalList';
 import ProposalCreate from './pages/ProposalCreate';
 import ProposalDetail from './pages/ProposalDetail';
 import ArchiveProposals from './pages/ArchiveProposals';
-import DecryptionProgress from './pages/DecryptionProgress';
 import './App.css';
 
 /* ─────────────────────────────────────────────
@@ -52,20 +51,20 @@ const terminalTheme = createTheme({
   },
 
   typography: {
-    fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
-    h1: { fontFamily: "'Share Tech Mono', monospace", letterSpacing: '0.06em' },
-    h2: { fontFamily: "'Share Tech Mono', monospace", letterSpacing: '0.06em' },
-    h3: { fontFamily: "'Share Tech Mono', monospace", letterSpacing: '0.05em' },
-    h4: { fontFamily: "'Share Tech Mono', monospace", letterSpacing: '0.04em' },
-    h5: { fontFamily: "'Share Tech Mono', monospace" },
-    h6: { fontFamily: "'Share Tech Mono', monospace" },
+    fontFamily: "JetBrains Mono",
+    h1: { fontFamily: "JetBrains Mono", letterSpacing: '0.06em' },
+    h2: { fontFamily: "JetBrains Mono", letterSpacing: '0.06em' },
+    h3: { fontFamily: "JetBrains Mono", letterSpacing: '0.05em' },
+    h4: { fontFamily: "JetBrains Mono", letterSpacing: '0.04em' },
+    h5: { fontFamily: "JetBrains Mono" },
+    h6: { fontFamily: "JetBrains Mono" },
     button: {
-      fontFamily: "'Share Tech Mono', monospace",
+      fontFamily: "JetBrains Mono",
       letterSpacing: '0.12em',
       textTransform: 'uppercase',
     },
     caption: { fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' },
-    overline: { fontFamily: "'Share Tech Mono', monospace", letterSpacing: '0.15em' },
+    overline: { fontFamily: "JetBrains Mono", letterSpacing: '0.15em' },
   },
 
   shape: {
@@ -106,7 +105,7 @@ const terminalTheme = createTheme({
       defaultProps: { disableElevation: true, disableRipple: false },
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           letterSpacing: '0.12em',
           borderRadius: '2px',
           textTransform: 'uppercase',
@@ -212,7 +211,7 @@ const terminalTheme = createTheme({
     MuiInputLabel: {
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           fontSize: '0.75rem',
           letterSpacing: '0.1em',
           color: '#64748b',
@@ -264,7 +263,7 @@ const terminalTheme = createTheme({
     MuiToggleButton: {
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           fontSize: '0.62rem',
           letterSpacing: '0.14em',
           textTransform: 'uppercase',
@@ -293,7 +292,7 @@ const terminalTheme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           fontSize: '0.6rem',
           letterSpacing: '0.12em',
           borderRadius: '2px',
@@ -335,7 +334,7 @@ const terminalTheme = createTheme({
     MuiDialogTitle: {
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           letterSpacing: '0.06em',
           color: '#e2e8f0',
           borderBottom: '1px solid #1e2a35',
@@ -364,7 +363,7 @@ const terminalTheme = createTheme({
     MuiStepLabel: {
       styleOverrides: {
         label: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           fontSize: '0.65rem',
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
@@ -454,7 +453,7 @@ const terminalTheme = createTheme({
     MuiTab: {
       styleOverrides: {
         root: {
-          fontFamily: "'Share Tech Mono', monospace",
+          fontFamily: "JetBrains Mono",
           fontSize: '0.62rem',
           letterSpacing: '0.14em',
           textTransform: 'uppercase',
@@ -501,7 +500,6 @@ function App() {
             <Route path="/proposal/:id"   element={<ProposalDetail />} />
             <Route path="/create-proposal"element={<ProposalCreate />} />
             <Route path="/archive"        element={<ArchiveProposals />} />
-            <Route path="/decryption"     element={<DecryptionProgress />} />
           </Routes>
         </Router>
       </VotingProvider>
