@@ -1,8 +1,9 @@
 // scripts/testVerifier.js
 require("dotenv").config();
-const { ethers } = require("hardhat");
+const { ethers } = require("ethers");
 const snarkjs = require("snarkjs");
 const { buildBabyjub } = require("circomlibjs");
+const fs = require("fs");
 
 async function computeEncryptedVote(voteVector, nonces, publicKey, babyJub) {
     const F = babyJub.F;
@@ -53,7 +54,7 @@ function leInt2Buff(n) {
 
 async function main() {
 
-    const VERIFIER_ADDRESS = "0xE481A13ABb6F67dd71F9963E17e55d61F0483C80"; // paste deployed address here
+    const VERIFIER_ADDRESS = "0xc13Db6b6DEaeB082c77ae801855f9bc3B91bDa80"; // paste deployed address here
 
     // ─────────────────────────────────────────────
     // Setup BabyJubJub
@@ -173,14 +174,10 @@ async function main() {
     // ─────────────────────────────────────────────
     // Call deployed verifier on chain
     // ─────────────────────────────────────────────
-    const [signer] = await ethers.getSigners();
-    console.log("\nSigner address:", await signer.getAddress());
-
-    const verifier = await ethers.getContractAt(
-        "Groth16Verifier",
-        VERIFIER_ADDRESS,
-        signer
-    );
+    const provider = new ethers.JsonRpcProvider(process.env.PASEO_RPC_URL);
+    const signer = new ethers.Wallet(process.env.PASEO_PK, provider);
+    const abi = JSON.parse(fs.readFileSync("build/Groth16Verifier.abi", "utf8"));
+    const verifier = new ethers.Contract(VERIFIER_ADDRESS, abi, signer);
 
     console.log("\nCalling verifyProof on Passet Hub...");
     const result = await verifier.verifyProof(a, b, c, input);

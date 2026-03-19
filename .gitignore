@@ -23,3 +23,5 @@ circuits/build
 !circuits/build/vote_js
 
 *.ptau
+
+build
