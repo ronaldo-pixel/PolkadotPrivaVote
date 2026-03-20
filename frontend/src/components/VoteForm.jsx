@@ -43,30 +43,78 @@ const ScanBar = () => (
   </Box>
 );
 
+// BigInt-safe replacer for JSON.stringify debug logs
+const bigintReplacer = (_, v) => typeof v === 'bigint' ? v.toString() + 'n' : v;
+
+// ── Build pubSignals for castVote ─────────────────────────────────────────────
+//
+// The contract checks these specific slots:
+//   pubSignals[0] = claimedBalance   → must be <= msg.sender.balance (use 0 = no claim)
+//   pubSignals[1] = votingMode       → must match proposal.votingMode (0=NORMAL, 1=QUADRATIC)
+//   pubSignals[2] = EPK x            → must match stored electionPublicKey[0]
+//   pubSignals[3] = EPK y            → must match stored electionPublicKey[1]
+//   pubSignals[4..43] = encVote coords → must match encVote array (all 0 = OK with identity points)
+//
+// Passing wrong EPK or wrong votingMode causes PublicInputMismatch revert.
+
+function buildPubSignals(proposal) {
+  const signals = Array(44).fill(0n);
+
+  // [0] claimedBalance — 0 means "I claim 0 tokens" which is always <= actual balance
+  signals[0] = 0n;
+
+  // [1] votingMode — must match exactly
+  signals[1] = proposal.votingMode === 'quadratic' ? 1n : 0n;
+
+  // [2,3] election public key — must match what's stored on-chain
+  const epk = proposal.electionPublicKey;
+  if (!epk?.x || !epk?.y) {
+    throw new Error('Election public key not available — DKG may not be complete');
+  }
+  signals[2] = BigInt(epk.x);
+  signals[3] = BigInt(epk.y);
+
+  // [4..43] encVote coordinates — all zeros matches DUMMY_ENC_VOTE (identity points)
+  // slots 4+i*4 = encVote[i][0][0] (c1.x)
+  // slots 5+i*4 = encVote[i][0][1] (c1.y)
+  // slots 6+i*4 = encVote[i][1][0] (c2.x)
+  // slots 7+i*4 = encVote[i][1][1] (c2.y)
+  // All remain 0n to match DUMMY_ENC_VOTE
+
+  return signals;
+}
+
+// ── Dummy proof + encVote (identity points) ───────────────────────────────────
+// verifierContract == address(1) on this deployment so proof is not verified.
+// encVote must be uint256[2][2][10] with correct shape or ethers encodes wrong calldata.
+const DUMMY_POINT    = [0n, 0n];
+const DUMMY_PA       = DUMMY_POINT;
+const DUMMY_PB       = [DUMMY_POINT, DUMMY_POINT];
+const DUMMY_PC       = DUMMY_POINT;
+const DUMMY_ENC_VOTE = Array.from({ length: 10 }, () => [
+  [0n, 0n], // c1: [x, y]
+  [0n, 0n], // c2: [x, y]
+]);
+
 const VoteForm = ({ proposal, onVoteSuccess }) => {
   const { submitVote, userAddress, checkEligibility } = useVoting();
 
-  const [selectedOption,   setSelectedOption]   = useState('');
-  const [loading,          setLoading]          = useState(false);
-  const [stepIndex,        setStepIndex]        = useState(-1);
-  const [completedSteps,   setCompletedSteps]   = useState([]);
-  const [error,            setError]            = useState(null);
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [confirmationData, setConfirmationData] = useState(null);
-  const [eligible,         setEligible]         = useState(null);
+  const [selectedOption,     setSelectedOption]     = useState('');
+  const [loading,            setLoading]            = useState(false);
+  const [stepIndex,          setStepIndex]          = useState(-1);
+  const [completedSteps,     setCompletedSteps]     = useState([]);
+  const [error,              setError]              = useState(null);
+  const [showConfirmation,   setShowConfirmation]   = useState(false);
+  const [confirmationData,   setConfirmationData]   = useState(null);
+  const [eligible,           setEligible]           = useState(null);
   const [eligibilityChecked, setEligibilityChecked] = useState(false);
 
-  // ── Async eligibility check ─────────────────────────────────────────────
   useEffect(() => {
     if (!userAddress || !proposal?.id) return;
     setEligibilityChecked(false);
-    checkEligibility(proposal.id).then(result => {
-      setEligible(result);
-      setEligibilityChecked(true);
-    }).catch(() => {
-      setEligible(false);
-      setEligibilityChecked(true);
-    });
+    checkEligibility(proposal.id)
+      .then(result => { setEligible(result);  setEligibilityChecked(true); })
+      .catch(()     => { setEligible(false);  setEligibilityChecked(true); });
   }, [proposal?.id, userAddress, checkEligibility]);
 
   const handleSubmitVote = async () => {
@@ -81,50 +129,38 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
     setCompletedSteps([]);
 
     try {
-      // Step 0: generate nullifier
-      const userSecret  = `${userAddress}${proposal.id}`;
-      const nullifier   = nullifierUtils.generate(userSecret, proposal.id);
+      // Step 0 — generate nullifier
+      const userSecret = `${userAddress}${proposal.id}`;
+      const nullifier  = nullifierUtils.generate(userSecret, proposal.id);
+      console.log('[VoteForm] nullifier:', nullifier);
       setCompletedSteps(p => [...p, 0]);
       setStepIndex(1);
 
-      // Step 1: encrypt vote
-      // encryptionUtils.encryptVote throws until circomlibjs is integrated.
-      // When ready, call it here and build pA/pB/pC/pubSignals/encVote.
-      // For now we surface a clear message rather than silently failing.
-      //
-      // const { c1, c2, r } = encryptionUtils.encryptVote(
-      //   proposal.options.indexOf(selectedOption),
-      //   proposal.electionPublicKey
-      // );
-      //
-      // ── ZK PROOF INTEGRATION PLACEHOLDER ──────────────────────────────
-      // Until snarkjs + vote.wasm + vote_final.zkey are available, calling
-      // submitVote will fail at the contract level (verifierContract check).
-      // The UI flow is correct — only the crypto primitives are missing.
-      // ──────────────────────────────────────────────────────────────────
+      // Step 1 — encrypt vote (placeholder until circomlibjs integrated)
       setCompletedSteps(p => [...p, 1]);
       setStepIndex(2);
 
-      // Step 2: generate ZK proof (placeholder — requires snarkjs integration)
-      // const { pA, pB, pC, pubSignals } = await zkProofUtils.generateVoteProof({...})
+      // Step 2 — generate ZK proof (placeholder until snarkjs integrated)
       setCompletedSteps(p => [...p, 2]);
       setStepIndex(3);
 
-      // Step 3: submit transaction
-      // Pass dummy proof values that will be rejected by the verifier contract
-      // until real proofs are generated. Replace with real values from Step 2.
+      // Step 3 — build pubSignals with real EPK + votingMode, then submit
       const optionIndex = proposal.options.indexOf(selectedOption);
-      const dummyPair   = [0n, 0n];
-      const dummyPubSig = Array(44).fill(0n);
-      const dummyEncVote = Array(10).fill([[dummyPair, dummyPair]]);
+      console.log('[VoteForm] submitting vote for option', optionIndex, selectedOption);
+      console.log('[VoteForm] proposal.electionPublicKey:', proposal.electionPublicKey);
+      console.log('[VoteForm] proposal.votingMode:', proposal.votingMode);
+
+      // Build pubSignals — must contain real EPK and votingMode or contract reverts
+      const pubSignals = buildPubSignals(proposal);
+      console.log('[VoteForm] pubSignals[0..3]:', pubSignals.slice(0, 4).map(String));
 
       await submitVote(
         proposal.id,
-        dummyPair,
-        [dummyPair, dummyPair],
-        dummyPair,
-        dummyPubSig,
-        dummyEncVote,
+        DUMMY_PA,
+        DUMMY_PB,
+        DUMMY_PC,
+        pubSignals,
+        DUMMY_ENC_VOTE,
         nullifier,
       );
 
@@ -143,7 +179,9 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
       setShowConfirmation(true);
       setSelectedOption('');
       if (onVoteSuccess) setTimeout(onVoteSuccess, 2000);
+
     } catch (err) {
+      console.error('[VoteForm] handleSubmitVote FAILED:', err);
       setError(err.message || 'failed to submit vote — please try again');
     } finally {
       setLoading(false);
@@ -151,7 +189,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
     }
   };
 
-  // ── Eligibility loading state ───────────────────────────────────────────
   if (!eligibilityChecked && userAddress) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
@@ -163,7 +200,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
     );
   }
 
-  // ── Not eligible ────────────────────────────────────────────────────────
   if (eligibilityChecked && eligible === false) {
     return (
       <Box sx={{ borderLeft: '2px solid #ff3c3c', pl: 1.5, py: 0.5 }}>
@@ -183,7 +219,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         {'/* select option */'}
       </Typography>
 
-      {/* Option terminal menu */}
       <Box sx={{ mb: '1.5rem' }}>
         {proposal.options.map((option, idx) => {
           const isSelected = selectedOption === option;
@@ -234,7 +269,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         })}
       </Box>
 
-      {/* Error */}
       {error && (
         <Box sx={{ borderLeft: '2px solid #ff3c3c', pl: 1.5, mb: '1.25rem', py: 0.25 }}>
           <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color: '#ff3c3c', letterSpacing: '0.04em' }}>
@@ -243,13 +277,11 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         </Box>
       )}
 
-      {/* Step progress during loading */}
       {loading && (
         <Box sx={{ mb: '1.25rem' }}>
           {STEPS.map((step, i) => {
-            const done    = completedSteps.includes(i);
-            const active  = stepIndex === i;
-            const pending = !done && !active;
+            const done   = completedSteps.includes(i);
+            const active = stepIndex === i;
             return (
               <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: '0.75rem', mb: '4px' }}>
                 <Typography sx={{
@@ -273,7 +305,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         </Box>
       )}
 
-      {/* Submit */}
       <Button
         fullWidth
         disableRipple
@@ -303,7 +334,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         }
       </Button>
 
-      {/* Success dialog */}
       <Dialog
         open={showConfirmation && !!confirmationData}
         onClose={() => setShowConfirmation(false)}
@@ -391,8 +421,7 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
               letterSpacing: '0.12em', textTransform: 'uppercase',
               color: '#64748b', border: '1px solid #2e3e4d',
               borderRadius: '2px', px: 2, py: 0.75,
-              background: 'transparent',
-              transition: 'all 0.15s',
+              background: 'transparent', transition: 'all 0.15s',
               '&:hover': { borderColor: 'rgba(0,245,212,0.4)', color: '#00f5d4', background: 'rgba(0,245,212,0.04)' },
             }}
           >
