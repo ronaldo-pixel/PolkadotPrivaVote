@@ -6,6 +6,8 @@ Built on Polkadot Asset Hub using native PVM bytecode (resolc) and BN254 precomp
 
 ---
 
+## For frontend local deployment refer readme in frontend folder
+
 ## Prerequisites
 
 - Node.js 22+
@@ -150,7 +152,7 @@ node test/testprivate.js
 
 Verifier-only test with real ZK proof:
 ```bash
-node scripts/testVerifier.js
+node test/testVerifier.js
 ```
 
 The end-to-end test covers:
@@ -192,13 +194,12 @@ contracts/
 build/
   PrivateVoting.json       — PVM bytecode + ABI
   Verifier.json            — PVM bytecode + ABI
-  deployedAddress.json     — deployed addresses
 
 scripts/
   deployVerifier.js        — deploy Verifier.sol
   deployPrivateVoting.js   — deploy PrivateVoting.sol
-  testVerifier.js          — ZK proof end-to-end test
 
 test/
   testprivate.js           — full contract test
+  testVerifier.js          — ZK proof end-to-end test
 ```
