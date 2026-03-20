@@ -194,7 +194,7 @@ async function main() {
             "Best protocol?",
             ["Polkadot", "Ethereum", "Solana"],
             0,    // NORMAL
-            30,   // 60 blocks duration (~6 minutes on Passet Hub)
+            50,   // 60 blocks duration (~6 minutes on Passet Hub)
             0,    // no eligibility threshold
             4,    // minVoterThreshold = 4 (matches our 4 wallets)
             { gasLimit: 1_000_000n }
@@ -248,48 +248,187 @@ async function main() {
         else                        fail(`EPK mismatch`);
     } catch (e) { fail("getElectionPublicKey", e); }
 
-    // ── castVote (4 votes) ────────────────────────────────────────────────────
-    section("castVote — 4 voters");
+    // ── castVote — all 4 voters with real ZK proofs ───────────────────────────
+    section("castVote — real ZK proofs (all 4 voters)");
 
-    const pA = [0n, 0n];
-    const pB = [[0n, 0n], [0n, 0n]];
-    const pC = [0n, 0n];
+    const snarkjs = require("snarkjs");
+    const WASM_PATH = path.join(__dirname, "../circuits/build/vote_js/vote.wasm");
+    const ZKEY_PATH = path.join(__dirname, "../circuits/build/vote_final.zkey");
+    const VKEY_PATH = path.join(__dirname, "../circuits/build/verification_key.json");
+    const vkey = JSON.parse(fs.readFileSync(VKEY_PATH, "utf8"));
 
-    for (let v = 0; v < 4; v++) {
-        const voter  = voterWallets[v];
-        const nonce  = BigInt(v + 7);   // unique nonce per voter
-        const weight = 1n;
-        const option = 0;               // all vote for option 0 (Polkadot)
+    // compute encrypted vote using circomlibjs (matches circuit exactly)
+    async function computeEncryptedVote(voteVector, nonces, publicKey, babyJub) {
+        const F = babyJub.F;
+        const G = babyJub.Base8;
+        const encryptedVote = [];
+        for (let i = 0; i < voteVector.length; i++) {
+            const v  = BigInt(voteVector[i]);
+            const r  = BigInt(nonces[i]);
+            const c1 = babyJub.mulPointEscalar(G, r);
+            const vG = v === 0n ? [F.e(0n), F.e(1n)] : babyJub.mulPointEscalar(G, v);
+            const pubKeyPoint = [F.e(publicKey[0]), F.e(publicKey[1])];
+            const rH = babyJub.mulPointEscalar(pubKeyPoint, r);
+            const c2 = babyJub.addPoint(vG, rH);
+            encryptedVote.push([
+                [F.toObject(c1[0]).toString(), F.toObject(c1[1]).toString()],
+                [F.toObject(c2[0]).toString(), F.toObject(c2[1]).toString()]
+            ]);
+        }
+        return encryptedVote;
+    }
 
-        const { pubSignals: ps, encVoteSol: ev } = buildVoteInputs(
-            base8, epk, weight, option, nonce, 0, weight
+    async function generateVoteProof(voterIndex, epkX, epkY, babyJub) {
+        // unique nonces per voter — multiply base nonces by voter index offset
+        const nonceBase = [
+            "12345678901234567890",
+            "98765432109876543210",
+            "11111111111111111111",
+            "22222222222222222222",
+            "33333333333333333333",
+            "44444444444444444444",
+            "55555555555555555555",
+            "66666666666666666666",
+            "77777777777777777777",
+            "88888888888888888888"
+        ];
+
+        // make nonces unique per voter by adding voterIndex offset to voted option nonce
+        const nonces = [...nonceBase];
+        nonces[0] = (BigInt(nonceBase[0]) + BigInt(voterIndex * 1000)).toString();
+
+        const voteVector = Array(10).fill("0");
+        voteVector[0] = "1"; // all vote for option 0
+
+        const circuitInputs = {
+            voteVector,
+            voteWeight:     "1",
+            nonces,
+            claimedBalance: "1",
+            votingMode:     "0",
+            publicKey:      [epkX.toString(), epkY.toString()],
+            encryptedVote:  await computeEncryptedVote(
+                voteVector, nonces,
+                [epkX.toString(), epkY.toString()],
+                babyJub
+            )
+        };
+
+        const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+            circuitInputs, WASM_PATH, ZKEY_PATH
         );
 
+        // verify off-chain
+        const valid = await snarkjs.groth16.verify(vkey, publicSignals, proof);
+        if (!valid) throw new Error(`Off-chain verification failed for voter ${voterIndex}`);
+
+        // format for Solidity
+        const calldata = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals);
+        const [a, b, c, input] = JSON.parse("[" + calldata + "]");
+
+        const pA      = a.map(BigInt);
+        const pB      = b.map(row => row.map(BigInt));
+        const pC      = c.map(BigInt);
+        const signals = input.map(BigInt);
+
+        // extract encVoteSol from public signals
+        // layout: option i → c1.x=[4+i*4], c1.y=[5+i*4], c2.x=[6+i*4], c2.y=[7+i*4]
+        const encVoteSol = [];
+        for (let i = 0; i < 10; i++) {
+            const base = 4 + i * 4;
+            encVoteSol.push([
+                [signals[base],     signals[base + 1]],
+                [signals[base + 2], signals[base + 3]]
+            ]);
+        }
+
+        return { pA, pB, pC, signals, encVoteSol };
+    }
+
+    // get EPK from chain
+    const epkData = await contract.getElectionPublicKey(pid);
+    const epkX = epkData.x;
+    const epkY = epkData.y;
+    info(`EPK from chain: x=${epkX.toString().slice(0,20)}...`);
+
+    // generate and submit proofs for all 4 voters
+    for (let v = 0; v < 4; v++) {
+        const voter = voterWallets[v];
+        info(`Generating proof for voter ${v} (${voter.address.slice(0,8)}...)...`);
+
+        let proofData;
+        try {
+            proofData = await generateVoteProof(v, epkX, epkY, babyJub);
+            ok(`Voter ${v} proof generated and verified off-chain`);
+        } catch (e) {
+            fail(`Voter ${v} proof generation`, e);
+            continue;
+        }
+
+        // simulate first
+        try {
+            await contract.connect(voter).castVote.staticCall(
+                pid,
+                proofData.pA,
+                proofData.pB,
+                proofData.pC,
+                proofData.signals,
+                proofData.encVoteSol
+            );
+        } catch (simErr) {
+            let reason = simErr?.message?.split('\n')[0] ?? String(simErr);
+            if (simErr?.data) {
+                try {
+                    const decoded = iface.parseError(simErr.data);
+                    reason = `${decoded.name}(${Object.values(decoded.args).join(', ')})`;
+                } catch { reason = `raw: ${simErr.data}`; }
+            }
+            fail(`Voter ${v} castVote simulation — ${reason}`);
+            continue;
+        }
+
+        // send transaction
         try {
             const tx = await contract.connect(voter).castVote(
-                pid, pA, pB, pC, ps, ev, { gasLimit: 5_000_000n }
+                pid,
+                proofData.pA,
+                proofData.pB,
+                proofData.pC,
+                proofData.signals,
+                proofData.encVoteSol,
+                { gasLimit: 5_000_000n }
             );
             const receipt = await waitForTx(tx);
             const events  = parseEvents(receipt, iface);
             const voteCastEv = events.find(e => e.name === "VoteCast");
-            if (voteCastEv) ok(`Voter ${v} (${voter.address.slice(0,8)}...) voted — count: ${voteCastEv.args.voteCount}`);
+            if (voteCastEv) ok(`Voter ${v} voted with real ZK proof — voteCount: ${voteCastEv.args.voteCount}`);
             else            fail(`Voter ${v} VoteCast event not found`);
         } catch (e) { fail(`Voter ${v} castVote`, e); }
     }
 
-    // Double vote check
+    // double vote check with real proof — should still reject
+    info("Testing double vote rejection with real proof...");
     try {
-        const { pubSignals: ps, encVoteSol: ev } = buildVoteInputs(base8, epk, 1n, 0, 99n, 0, 1n);
-        await contract.connect(deployer).castVote.staticCall(pid, pA, pB, pC, ps, ev);
+        const proofData = await generateVoteProof(0, epkX, epkY, babyJub);
+        await contract.connect(deployer).castVote.staticCall(
+            pid,
+            proofData.pA,
+            proofData.pB,
+            proofData.pC,
+            proofData.signals,
+            proofData.encVoteSol
+        );
         fail("Double vote should be rejected");
     } catch (e) { ok("Double vote rejected (AlreadyVoted)"); }
 
-    // Verify encrypted tally
+    // verify encrypted tally
     try {
         const { c1 } = await contract.getEncryptedTally(pid, 0);
         info(`Tally c1[0] x: ${c1[0].toString().slice(0, 20)}...`);
-        ok("Encrypted tally updated after 4 votes");
+        ok("Encrypted tally updated after 4 real ZK votes");
     } catch (e) { fail("getEncryptedTally", e); }
+
+        
 
     // ── Wait for endBlock ─────────────────────────────────────────────────────
     section("Wait for endBlock");

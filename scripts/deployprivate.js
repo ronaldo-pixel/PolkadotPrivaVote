@@ -47,7 +47,7 @@ async function main() {
     const KEYHOLDER_0_PUB      = process.env.KEYHOLDER_0_PUB;
     const KEYHOLDER_1_PUB      = process.env.KEYHOLDER_1_PUB;
     const KEYHOLDER_2_PUB      = process.env.KEYHOLDER_2_PUB;
-    const VERIFIER_ADDRESS = "0x0000000000000000000000000000000000000001";
+    const VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS;
 
     if (!VERIFIER_ADDRESS) {
         console.error("VERIFIER_ADDRESS not set in .env — deploy Verifier.sol first");

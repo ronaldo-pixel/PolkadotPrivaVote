@@ -520,7 +520,8 @@ contract PrivateVoting {
 
             // verify tallies[i] * G == mg
             uint256[2] memory check = _pointMulScalar(tallies[i]);
-            require(check[0] == mg[0] && check[1] == mg[1], "wrong tally");
+            if (check[0] != mg[0] || check[1] != mg[1])
+                revert WrongTally(i, mg[0], mg[1], check[0], check[1]);
 
             p.finalResult[i] = tallies[i];
             if (tallies[i] > winningTally) {
@@ -738,7 +739,7 @@ contract PrivateVoting {
             m
         );
         (bool ok, bytes memory result) = address(5).staticcall(input);
-        require(ok, "modexp failed");
+        if (!ok) revert ModExpFailed();
         return abi.decode(result, (uint256));
     }
 
