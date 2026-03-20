@@ -19,7 +19,7 @@ contract PrivateVoting {
     // =========================================================================
 
     uint256 private constant NUM_KEYHOLDERS = 3;
-    uint256 private constant MIN_VOTERS     = 1;
+    uint256 private constant MIN_VOTERS     = 3;
     uint256 private constant MIN_OPTIONS    = 2;
     uint256 private constant MAX_OPTIONS    = 10;
     
