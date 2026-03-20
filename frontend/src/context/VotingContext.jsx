@@ -11,6 +11,8 @@ const CONTRACT_ABI = [
   'function hasVoted(uint256 proposalId, address voter) external view returns (bool)',
   'function verifierContract() external view returns (address)',
 
+  // Keep full tuple ABI so ethers knows the shape for encoding calldata,
+  // but we NEVER use ethers to decode the return value — see safeGetProposal().
   'function proposals(uint256) external view returns (' +
     'uint256 id,' +
     'address creator,' +
@@ -24,9 +26,10 @@ const CONTRACT_ABI = [
     'uint256 minVoterThreshold,' +
     'uint8 status,' +
     'uint256 voteCount,' +
-    'uint256 partialCount,' +
     'uint256 winningOption,' +
-    'uint256 endedAtBlock' +
+    'uint256 endedAtBlock,' +
+    'uint256 shareCount,' +
+    'uint256 partialCount' +
   ')',
 
   'function getElectionPublicKey(uint256 proposalId) external view returns (uint256 x, uint256 y, uint8 status, uint256 sharesIn)',
@@ -40,7 +43,7 @@ const CONTRACT_ABI = [
   'function castVote(uint256 proposalId, uint256[2] pA, uint256[2][2] pB, uint256[2] pC, uint256[44] pubSignals, uint256[2][2][10] encVote) external',
   'function closeVoting(uint256 proposalId) external',
   'function submitPartialDecrypt(uint256 proposalId, uint256[2][10] partials) external',
-  'function finalizeResult(uint256 proposalId, uint256 maxTally) external',
+  'function submitFinalTally(uint256 proposalId, uint256[10] tallies) external',
 
   'event ProposalCreated(uint256 indexed proposalId)',
   'event PublicKeyShareSubmitted(uint256 indexed proposalId, address indexed keyholder, uint256 keyholderIndex, uint256 shareX, uint256 shareY)',
@@ -52,17 +55,13 @@ const CONTRACT_ABI = [
   'event ResultRevealed(uint256 indexed proposalId, uint256 winningOption)',
 ];
 
-// ── Polkadot Asset Hub EVM chain config ───────────────────────────────────────
+// ── Polkadot Asset Hub EVM config ─────────────────────────────────────────────
 
 const POLKADOT_TESTNET = {
-  chainId: '0x190F7B1', // 420420417 in hex
-  chainName: 'Polkadot Asset Hub Testnet',
-  nativeCurrency: {
-    name: 'PAS',
-    symbol: 'PAS',
-    decimals: 18,
-  },
-  rpcUrls: ['https://eth-rpc-testnet.polkadot.io/'],
+  chainId:           '0x190F7B1',
+  chainName:         'Polkadot Asset Hub Testnet',
+  nativeCurrency:    { name: 'PAS', symbol: 'PAS', decimals: 18 },
+  rpcUrls:           ['https://eth-rpc-testnet.polkadot.io/'],
   blockExplorerUrls: ['https://assethub-westend.subscan.io'],
 };
 
@@ -73,120 +72,209 @@ const MODE_MAP   = { 0: 'normal', 1: 'quadratic' };
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 
-// ── Talisman wallet detection ─────────────────────────────────────────────────
+// ── Wallet provider detection (Talisman-first) ────────────────────────────────
 
-/**
- * Waits for a wallet provider to be injected.
- * Talisman injects window.ethereum asynchronously — if we check too early
- * it may not be present yet. This waits up to 1000ms before giving up.
- *
- * Priority order:
- *   1. window.talisman  — Talisman's own provider (preferred, avoids MetaMask conflicts)
- *   2. window.ethereum with isTalisman flag
- *   3. window.ethereum  — fallback (MetaMask or any EIP-1193 wallet)
- */
 function getWalletProvider() {
   if (typeof window === 'undefined') return null;
-
-  // Talisman exposes its EVM provider at window.talisman.ethereum
-  if (window.talisman?.ethereum) return window.talisman.ethereum;
-
-  // Some Talisman versions inject isTalisman on window.ethereum
-  if (window.ethereum?.isTalisman) return window.ethereum;
-
-  // EIP-6963: multiple wallet providers — find Talisman if present
+  if (window.talisman?.ethereum)    return window.talisman.ethereum;
+  if (window.ethereum?.isTalisman)  return window.ethereum;
   if (window.ethereum?.providers) {
     const talisman = window.ethereum.providers.find(p => p.isTalisman);
     if (talisman) return talisman;
   }
-
-  // Generic fallback
   if (window.ethereum) return window.ethereum;
-
   return null;
 }
 
-/**
- * Waits for the wallet to be injected (up to `timeoutMs`).
- * Talisman fires the eip6963:announceProvider event, but the simplest
- * cross-wallet approach is polling with a short timeout.
- */
 async function waitForProvider(timeoutMs = 1000) {
-  const provider = getWalletProvider();
-  if (provider) return provider;
-
+  const p = getWalletProvider();
+  if (p) return p;
   return new Promise((resolve) => {
     const start    = Date.now();
     const interval = setInterval(() => {
-      const p = getWalletProvider();
-      if (p || Date.now() - start >= timeoutMs) {
+      const found = getWalletProvider();
+      if (found || Date.now() - start >= timeoutMs) {
         clearInterval(interval);
-        resolve(p ?? null);
+        resolve(found ?? null);
       }
     }, 100);
   });
 }
 
-// ── Chain switching ───────────────────────────────────────────────────────────
-
-/**
- * Asks Talisman (or MetaMask) to switch to the Polkadot Asset Hub testnet.
- * If the network is not yet added to the wallet, adds it first via wallet_addEthereumChain.
- */
-async function ensureCorrectChain(provider) {
-  const chainIdHex    = await provider.request({ method: 'eth_chainId' });
+async function ensureCorrectChain(rawProvider) {
+  const chainIdHex     = await rawProvider.request({ method: 'eth_chainId' });
   const currentChainId = parseInt(chainIdHex, 16);
-
-  if (currentChainId === REQUIRED_CHAIN_ID) return; // already on correct chain
-
-  // Try to switch first. If the network is not yet in Talisman, this will fail
-  // with 4902 (MetaMask standard) or -32603 / a message about unknown chain.
-  // In all failure cases, attempt wallet_addEthereumChain to register the network.
+  if (currentChainId === REQUIRED_CHAIN_ID) return;
   try {
-    await provider.request({
+    await rawProvider.request({
       method: 'wallet_switchEthereumChain',
       params: [{ chainId: POLKADOT_TESTNET.chainId }],
     });
   } catch (switchErr) {
     const code    = switchErr.code;
     const message = switchErr.message ?? '';
-    const isUnknownChain =
-      code === 4902 ||
-      code === -32603 ||
-      message.includes('Unrecognized chain') ||
-      message.includes('wallet_addEthereumChain') ||
+    const isUnknown =
+      code === 4902 || code === -32603 ||
+      message.includes('Unrecognized') ||
       message.includes('chain') ||
       message.includes('network');
-
-    if (isUnknownChain) {
-      // Add the network to Talisman, then switch to it
-      await provider.request({
+    if (isUnknown) {
+      await rawProvider.request({
         method: 'wallet_addEthereumChain',
         params: [POLKADOT_TESTNET],
       });
     } else {
-      // User rejected the switch — propagate
       throw switchErr;
     }
   }
 }
 
-// ── Proposal decoder ──────────────────────────────────────────────────────────
+// ── safeGetProposal ───────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS
+// ───────────────
+// The Solidity compiler's auto-generated getter for a public mapping whose
+// value is a struct emits an ABI-encoded tuple return.  When that struct
+// contains a `string` field (dynamic type), the ABI encoding uses an offset
+// pointer in word 2 instead of inline data.  ethers v6's Result decoder
+// walks the head section and then jumps to the offset to read the string —
+// but on Polkadot Asset Hub (PolkaVM) the returned bytes are laid out
+// slightly differently from what a standard geth node produces, causing
+// ethers to miscalculate the string boundary and throw:
+//
+//   BUFFER_OVERRUN  (padding exceeds data length)
+//
+// The hex in the error message is the ASCII of an address, which confirms
+// that ethers is reading a 20-byte address field as the length prefix of
+// the string, then trying to slice that many bytes and running off the end.
+//
+// FIX
+// ───
+// Skip ethers' decoder entirely.  Issue a raw eth_call, receive the hex
+// return data, and manually extract each 32-byte word by index.  The layout
+// of the auto-generated getter for our struct (after skipping arrays/mappings
+// which the compiler drops from getters) is exactly:
+//
+//   word  0  : id                (uint256)  static
+//   word  1  : creator           (address)  static, right-padded to 32 bytes
+//   word  2  : offset → description          dynamic string pointer
+//   word  3  : votingMode        (uint8)    static
+//   word  4  : createdAtBlock    (uint256)  static
+//   word  5  : duration          (uint256)  static
+//   word  6  : startBlock        (uint256)  static
+//   word  7  : endBlock          (uint256)  static
+//   word  8  : eligibilityThreshold         static
+//   word  9  : minVoterThreshold (uint256)  static
+//   word 10  : status            (uint8)    static
+//   word 11  : voteCount         (uint256)  static
+//   word 12  : winningOption     (uint256)  static
+//   word 13  : endedAtBlock      (uint256)  static
+//   word 14  : shareCount        (uint256)  static
+//   word 15  : partialCount      (uint256)  static
+//   [dynamic tail: string length + utf-8 bytes, padded to 32]
+
+// Interface used only to build the calldata (encoding is fine; decoding is not)
+const PROPOSALS_CALLDATA_IFACE = new ethers.Interface([
+  'function proposals(uint256) external view returns (' +
+    'uint256 id,address creator,string description,uint8 votingMode,' +
+    'uint256 createdAtBlock,uint256 duration,uint256 startBlock,uint256 endBlock,' +
+    'uint256 eligibilityThreshold,uint256 minVoterThreshold,uint8 status,' +
+    'uint256 voteCount,uint256 winningOption,uint256 endedAtBlock,' +
+    'uint256 shareCount,uint256 partialCount)',
+]);
+
+async function safeGetProposal(provider, proposalId) {
+  const calldata = PROPOSALS_CALLDATA_IFACE.encodeFunctionData('proposals', [proposalId]);
+
+  const raw = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
+
+  if (!raw || raw === '0x') {
+    throw new Error(`proposals(${proposalId}) returned empty data — does the proposal exist?`);
+  }
+
+  const hex = raw.startsWith('0x') ? raw.slice(2) : raw;
+
+  // Each ABI word is 32 bytes = 64 hex chars
+  const WORD = 64;
+  const totalWords = Math.floor(hex.length / WORD);
+
+  if (totalWords < 16) {
+    throw new Error(
+      `proposals(${proposalId}) returned only ${totalWords} words, need at least 16. ` +
+      `Raw: ${raw.slice(0, 130)}…`
+    );
+  }
+
+  // Read a BigInt from word index n
+  const wordBig = (n) => BigInt('0x' + hex.slice(n * WORD, n * WORD + WORD));
+
+  // Address: last 20 bytes of word 1
+  const creatorWord = hex.slice(1 * WORD, 1 * WORD + WORD);
+  const creator = ethers.getAddress('0x' + creatorWord.slice(24)); // 24 hex = 12 bytes padding
+
+  // String: word 2 is a byte-offset from the start of the return data.
+  // Divide by 32 to get the word index of the length prefix.
+  const descByteOffset = Number(wordBig(2));
+  const descLenWordIdx = descByteOffset / 32;
+  const descLen        = Number(wordBig(descLenWordIdx));   // byte length of the string
+  const descDataStart  = (descLenWordIdx + 1) * WORD;       // hex char index
+  const descHex        = hex.slice(descDataStart, descDataStart + descLen * 2);
+  let description = '';
+  try {
+    description = ethers.toUtf8String('0x' + descHex);
+  } catch {
+    description = '';
+  }
+
+  return {
+    id:                   wordBig(0),
+    creator,
+    description,
+    votingMode:           wordBig(3),
+    createdAtBlock:       wordBig(4),
+    duration:             wordBig(5),
+    startBlock:           wordBig(6),
+    endBlock:             wordBig(7),
+    eligibilityThreshold: wordBig(8),
+    minVoterThreshold:    wordBig(9),
+    status:               wordBig(10),
+    voteCount:            wordBig(11),
+    winningOption:        wordBig(12),
+    endedAtBlock:         wordBig(13),
+    shareCount:           wordBig(14),
+    partialCount:         wordBig(15),
+  };
+}
+
+// ── decodeProposal ────────────────────────────────────────────────────────────
 
 async function decodeProposal(contract, provider, proposalId) {
-  const raw = await contract.proposals(proposalId);
+  const raw = await safeGetProposal(provider, proposalId);
 
+  // Reconstruct options from createProposal calldata via the ProposalCreated event tx
   let options = [];
   try {
     const filter = contract.filters.ProposalCreated(proposalId);
     const logs   = await contract.queryFilter(filter, 0, 'latest');
     if (logs.length > 0) {
-      const tx      = await provider.getTransaction(logs[0].transactionHash);
-      const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
-      options = Array.from(decoded.options);
+      const tx = await provider.getTransaction(logs[0].transactionHash);
+      if (tx && tx.data) {
+        // Guard: only decode if the 4-byte selector matches createProposal.
+        // If a different tx (e.g. castVote) is returned, skip to avoid BUFFER_OVERRUN.
+        const createSel = contract.interface.getFunction('createProposal').selector;
+        if (tx.data.slice(0, 10).toLowerCase() === createSel.toLowerCase()) {
+          const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
+          options = Array.from(decoded.options);
+        } else {
+          console.warn(
+            `[decodeProposal] selector mismatch for proposal ${proposalId} — ` +
+            `expected ${createSel}, got ${tx.data.slice(0, 10)}. Skipping options decode.`
+          );
+        }
+      }
     }
-  } catch {
-    options = [];
+  } catch (err) {
+    console.warn(`[decodeProposal] options fetch failed for proposal ${proposalId}:`, err.message);
   }
 
   let finalResult = null;
@@ -196,13 +284,13 @@ async function decodeProposal(contract, provider, proposalId) {
       const res   = await contract.getResult(proposalId);
       finalResult = Array.from(res.tally).map(t => Number(t));
       winner      = options[Number(res.winningOption)] ?? null;
-    } catch {
-      finalResult = null;
+    } catch (err) {
+      console.warn(`[decodeProposal] getResult failed for proposal ${proposalId}:`, err.message);
     }
   }
 
   return {
-    id:                   proposalId.toString(),
+    id:                   raw.id.toString(),
     creator:              raw.creator,
     description:          raw.description,
     options,
@@ -216,6 +304,7 @@ async function decodeProposal(contract, provider, proposalId) {
     status:               STATUS_MAP[Number(raw.status)] ?? 'PENDING_DKG',
     voteCount:            Number(raw.voteCount),
     totalParticipation:   Number(raw.voteCount),
+    shareCount:           Number(raw.shareCount),
     partialCount:         Number(raw.partialCount),
     winningOption:        Number(raw.winningOption),
     endedAtBlock:         Number(raw.endedAtBlock),
@@ -236,24 +325,20 @@ export const VotingProvider = ({ children }) => {
   const [proposalDetail, setProposalDetail] = useState(null);
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState(null);
-  const [walletType,     setWalletType]     = useState(null); // 'talisman' | 'metamask' | 'unknown'
+  const [walletType,     setWalletType]     = useState(null);
   const [chainId,        setChainId]        = useState(null);
   const [usedNullifiers, setUsedNullifiers] = useState(new Set());
 
   const contractRef    = useRef(null);
-  const providerRef    = useRef(null); // ethers BrowserProvider
-  const rawProviderRef = useRef(null); // raw EIP-1193 provider (window.talisman.ethereum etc)
+  const providerRef    = useRef(null);
+  const rawProviderRef = useRef(null);
 
-  // ── Detect wallet type ─────────────────────────────────────────────────────
-
-  function detectWalletType(rawProvider) {
-    if (!rawProvider) return 'unknown';
-    if (rawProvider.isTalisman)  return 'talisman';
-    if (rawProvider.isMetaMask)  return 'metamask';
+  const detectWalletType = (rawProvider) => {
+    if (!rawProvider)           return 'unknown';
+    if (rawProvider.isTalisman) return 'talisman';
+    if (rawProvider.isMetaMask) return 'metamask';
     return 'unknown';
-  }
-
-  // ── Resolve keyholder status ───────────────────────────────────────────────
+  };
 
   const resolveKeyholder = useCallback(async (address, contract) => {
     if (!CONTRACT_ADDRESS || !address) return;
@@ -272,20 +357,13 @@ export const VotingProvider = ({ children }) => {
     }
   }, []);
 
-  // ── Build ethers provider + contract from a raw EIP-1193 provider ──────────
-
-  const buildContractFromProvider = useCallback((rawProvider, signerOrProvider) => {
-    if (!CONTRACT_ADDRESS) return null;
-    return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signerOrProvider);
-  }, []);
-
   const getReadContract = useCallback(() => {
     if (contractRef.current) return contractRef.current;
     const raw = rawProviderRef.current;
     if (!raw || !CONTRACT_ADDRESS) return null;
-    const provider = new ethers.BrowserProvider(raw);
-    providerRef.current = provider;
-    const c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    const p = new ethers.BrowserProvider(raw);
+    providerRef.current = p;
+    const c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, p);
     contractRef.current = c;
     return c;
   }, []);
@@ -298,13 +376,11 @@ export const VotingProvider = ({ children }) => {
     return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
   }, []);
 
-  // ── Listen for Talisman / wallet events ───────────────────────────────────
+  // ── Wallet event listeners + auto-restore ─────────────────────────────────
 
   useEffect(() => {
-    let rawProvider = null;
-
-    const setupListeners = (provider) => {
-      rawProvider = provider;
+    const setupListeners = (rawProvider) => {
+      rawProviderRef.current = rawProvider;
 
       const onAccountsChanged = (accounts) => {
         if (!accounts || accounts.length === 0) {
@@ -315,56 +391,48 @@ export const VotingProvider = ({ children }) => {
           providerRef.current    = null;
           rawProviderRef.current = null;
         } else {
-          const address = accounts[0];
+          const address  = accounts[0];
+          const ethersP  = new ethers.BrowserProvider(rawProvider);
+          providerRef.current = ethersP;
+          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
+          contractRef.current = contract;
           setUserAddress(address);
-          const ethersProvider = new ethers.BrowserProvider(provider);
-          providerRef.current  = ethersProvider;
-          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersProvider);
-          contractRef.current  = contract;
           resolveKeyholder(address, contract);
         }
       };
 
       const onChainChanged = (newChainId) => {
-        const parsed = parseInt(newChainId, 16);
-        setChainId(parsed);
-        // Chain switch invalidates all provider state — reload
+        setChainId(parseInt(newChainId, 16));
         window.location.reload();
       };
 
-      provider.on('accountsChanged', onAccountsChanged);
-      provider.on('chainChanged',    onChainChanged);
+      rawProvider.on('accountsChanged', onAccountsChanged);
+      rawProvider.on('chainChanged',    onChainChanged);
 
-      // Check if already connected (no popup)
-      provider.request({ method: 'eth_accounts' }).then((accounts) => {
+      rawProvider.request({ method: 'eth_accounts' }).then((accounts) => {
         if (accounts && accounts.length > 0) {
-          const address = accounts[0];
+          const address  = accounts[0];
+          const ethersP  = new ethers.BrowserProvider(rawProvider);
+          providerRef.current = ethersP;
+          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
+          contractRef.current = contract;
           setUserAddress(address);
-          const ethersProvider = new ethers.BrowserProvider(provider);
-          providerRef.current  = ethersProvider;
-          rawProviderRef.current = provider;
-          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersProvider);
-          contractRef.current  = contract;
+          setWalletType(detectWalletType(rawProvider));
           resolveKeyholder(address, contract);
-          setWalletType(detectWalletType(provider));
         }
       }).catch(() => {});
 
-      // Read current chain
-      provider.request({ method: 'eth_chainId' }).then(hex => {
+      rawProvider.request({ method: 'eth_chainId' }).then(hex => {
         setChainId(parseInt(hex, 16));
       }).catch(() => {});
 
       return () => {
-        provider.removeListener('accountsChanged', onAccountsChanged);
-        provider.removeListener('chainChanged',    onChainChanged);
+        rawProvider.removeListener('accountsChanged', onAccountsChanged);
+        rawProvider.removeListener('chainChanged',    onChainChanged);
       };
     };
 
-    // Wait for provider to be injected (Talisman may inject after DOMContentLoaded)
-    waitForProvider(1500).then((provider) => {
-      if (provider) setupListeners(provider);
-    });
+    waitForProvider(1500).then(p => { if (p) setupListeners(p); });
   }, [resolveKeyholder]);
 
   // ── connectWallet ─────────────────────────────────────────────────────────
@@ -372,42 +440,25 @@ export const VotingProvider = ({ children }) => {
   const connectWallet = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      // Wait for provider — important on first load when Talisman may not be injected yet
       const rawProvider = await waitForProvider(2000);
-
-      if (!rawProvider) {
-        throw new Error(
-          'No wallet found. Install Talisman from https://talisman.xyz and reload the page.'
-        );
-      }
+      if (!rawProvider) throw new Error('No wallet found. Install Talisman from https://talisman.xyz');
 
       rawProviderRef.current = rawProvider;
-      const type = detectWalletType(rawProvider);
-      setWalletType(type);
+      setWalletType(detectWalletType(rawProvider));
 
-      // Step 1: request accounts FIRST.
-      // Talisman rejects wallet_switchEthereumChain before an account is approved —
-      // it returns Internal JSON-RPC error (-32603) if you switch chain before connect.
       const accounts = await rawProvider.request({ method: 'eth_requestAccounts' });
+      if (!accounts || accounts.length === 0) throw new Error('No accounts returned from wallet');
 
-      if (!accounts || accounts.length === 0) {
-        throw new Error('No accounts returned from wallet');
-      }
-
-      // Step 2: switch to / add Polkadot Asset Hub AFTER account is approved.
-      // Talisman now has an active session and accepts wallet_switchEthereumChain.
       await ensureCorrectChain(rawProvider);
 
-      const address      = accounts[0];
-      const ethersProvider = new ethers.BrowserProvider(rawProvider);
-      providerRef.current  = ethersProvider;
-
+      const address  = accounts[0];
+      const ethersP  = new ethers.BrowserProvider(rawProvider);
+      providerRef.current = ethersP;
       setUserAddress(address);
 
       if (CONTRACT_ADDRESS) {
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersProvider);
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
         contractRef.current = contract;
         await resolveKeyholder(address, contract);
       }
@@ -418,7 +469,6 @@ export const VotingProvider = ({ children }) => {
       setLoading(false);
       return address;
     } catch (err) {
-      // 4001 = user rejected
       const message = err.code === 4001
         ? 'Connection rejected — please approve in your wallet'
         : (err.message ?? 'Wallet connection failed');
@@ -452,7 +502,7 @@ export const VotingProvider = ({ children }) => {
       const contract = getReadContract();
       if (!contract) { setLoading(false); return; }
 
-      const count = Number(await contract.proposalCount());
+      const count    = Number(await contract.proposalCount());
       if (count === 0) { setProposals([]); setLoading(false); return; }
 
       const provider = providerRef.current;
@@ -502,7 +552,7 @@ export const VotingProvider = ({ children }) => {
       const epk = await contract.getElectionPublicKey(proposalId).catch(() => null);
       if (epk) {
         detail.electionPublicKey = { x: epk.x.toString(), y: epk.y.toString() };
-        detail.dkgSharesIn = Number(epk.sharesIn);
+        detail.dkgSharesIn       = Number(epk.sharesIn);
       }
 
       setProposalDetail(detail);
@@ -515,9 +565,9 @@ export const VotingProvider = ({ children }) => {
     }
   }, [getReadContract]);
 
-  const getActiveProposals   = useCallback(() => proposals.filter(p => p.status === 'PENDING_DKG' || p.status === 'ACTIVE'),  [proposals]);
-  const getArchivedProposals = useCallback(() => proposals.filter(p => p.status === 'REVEALED'    || p.status === 'CANCELLED'), [proposals]);
-  const getEndedProposals    = useCallback(() => proposals.filter(p => p.status === 'ENDED'),                                    [proposals]);
+  const getActiveProposals   = useCallback(() => proposals.filter(p => p.status === 'PENDING_DKG' || p.status === 'ACTIVE'),    [proposals]);
+  const getArchivedProposals = useCallback(() => proposals.filter(p => p.status === 'REVEALED'    || p.status === 'CANCELLED'),  [proposals]);
+  const getEndedProposals    = useCallback(() => proposals.filter(p => p.status === 'ENDED'),                                     [proposals]);
 
   // ── createProposal ────────────────────────────────────────────────────────
 
@@ -530,11 +580,11 @@ export const VotingProvider = ({ children }) => {
     try {
       const contract = await getWriteContract();
       const modeEnum = votingMode === 'quadratic' ? 1 : 0;
-      const tx       = await contract.createProposal(
-        description, options, modeEnum, duration,
-        eligibilityThreshold, minVoterThreshold,
+
+      const tx      = await contract.createProposal(
+        description, options, modeEnum, duration, eligibilityThreshold, minVoterThreshold,
       );
-      const receipt  = await tx.wait();
+      const receipt = await tx.wait();
 
       const createdLog = receipt.logs
         .map(l => { try { return contract.interface.parseLog(l); } catch { return null; } })
@@ -590,6 +640,7 @@ export const VotingProvider = ({ children }) => {
     setError(null);
     try {
       if (usedNullifiers.has(nullifier)) throw new Error('Nullifier already used — vote already cast');
+
       const contract = await getWriteContract();
       const tx = await contract.castVote(proposalId, pA, pB, pC, pubSignals, encVote);
       await tx.wait();
@@ -597,11 +648,27 @@ export const VotingProvider = ({ children }) => {
       const pid = proposalId.toString();
       setUsedNullifiers(prev => new Set([...prev, nullifier]));
       setUserVotes(prev => prev.includes(pid) ? prev : [...prev, pid]);
-      setProposals(prev => prev.map(p =>
-        p.id === pid
-          ? { ...p, voteCount: p.voteCount + 1, totalParticipation: p.totalParticipation + 1 }
-          : p
-      ));
+
+      // Refresh from chain after vote to keep proposals[] consistent.
+      // safeGetProposal is used inside decodeProposal so this is safe.
+      try {
+        const refreshed = await decodeProposal(
+          getReadContract(),
+          providerRef.current,
+          Number(pid)
+        );
+        if (refreshed) {
+          setProposals(prev => prev.map(p => p.id === pid ? refreshed : p));
+          setProposalDetail(prev => (prev?.id === pid) ? { ...prev, ...refreshed } : prev);
+        }
+      } catch (refreshErr) {
+        console.warn('[submitVote] post-vote refresh failed, using optimistic update:', refreshErr.message);
+        setProposals(prev => prev.map(p =>
+          p.id === pid
+            ? { ...p, voteCount: p.voteCount + 1, totalParticipation: p.totalParticipation + 1 }
+            : p
+        ));
+      }
 
       setLoading(false);
       return { success: true, nullifier };
@@ -610,7 +677,7 @@ export const VotingProvider = ({ children }) => {
       setLoading(false);
       throw err;
     }
-  }, [getWriteContract, usedNullifiers]);
+  }, [getWriteContract, getReadContract, usedNullifiers]);
 
   // ── closeVoting ───────────────────────────────────────────────────────────
 
@@ -650,14 +717,17 @@ export const VotingProvider = ({ children }) => {
     }
   }, [getWriteContract, getProposalDetail]);
 
-  // ── finalizeResult ────────────────────────────────────────────────────────
+  // ── submitFinalTally ──────────────────────────────────────────────────────
 
-  const finalizeResult = useCallback(async (proposalId, maxTally) => {
+  const submitFinalTally = useCallback(async (proposalId, tallies) => {
     setLoading(true);
     setError(null);
     try {
+      if (!Array.isArray(tallies) || tallies.length !== 10) {
+        throw new Error('tallies must be an array of exactly 10 uint256 values');
+      }
       const contract = await getWriteContract();
-      const tx = await contract.finalizeResult(proposalId, maxTally);
+      const tx = await contract.submitFinalTally(proposalId, tallies.map(BigInt));
       await tx.wait();
       await initializeProposals();
       setLoading(false);
@@ -674,18 +744,16 @@ export const VotingProvider = ({ children }) => {
   const checkEligibility = useCallback(async (proposalId) => {
     if (!userAddress) return false;
     try {
-      const contract = getReadContract();
-      if (!contract) return false;
-      const raw = await contract.proposals(proposalId);
-      console.log("Balance:", ethers.formatEther(balance));
+      const provider = providerRef.current;
+      if (!provider) return false;
+      const raw = await safeGetProposal(provider, proposalId);
       if (Number(raw.eligibilityThreshold) === 0) return true;
-      const balance = await providerRef.current.getBalance(userAddress);
-      console.log("Balance:", ethers.formatEther(balance));
+      const balance = await provider.getBalance(userAddress);
       return balance >= raw.eligibilityThreshold;
     } catch {
       return false;
     }
-  }, [userAddress, getReadContract]);
+  }, [userAddress]);
 
   // ── getDKGStatus ──────────────────────────────────────────────────────────
 
@@ -721,22 +789,16 @@ export const VotingProvider = ({ children }) => {
     totalAllocation: 100,
   }), [usedNullifiers]);
 
-  // ── isOnCorrectChain helper ───────────────────────────────────────────────
-
   const isOnCorrectChain = chainId === REQUIRED_CHAIN_ID;
 
-  // ── Context value ─────────────────────────────────────────────────────────
-
   const value = {
-    // Wallet state
     userAddress,
     isKeyholder,
     keyholderIndex,
-    walletType,       // 'talisman' | 'metamask' | 'unknown' | null
+    walletType,
     chainId,
-    isOnCorrectChain, // true if connected to Polkadot Asset Hub testnet
+    isOnCorrectChain,
 
-    // Voting state
     userVotes,
     userProposals,
     proposals,
@@ -744,26 +806,22 @@ export const VotingProvider = ({ children }) => {
     loading,
     error,
 
-    // Wallet actions
     connectWallet,
     disconnectWallet,
 
-    // Proposal queries
     initializeProposals,
     getProposalDetail,
     getActiveProposals,
     getArchivedProposals,
     getEndedProposals,
 
-    // Contract writes
     createProposal,
     submitPublicKeyShare,
     submitVote,
     closeVoting,
     submitPartialDecryption,
-    finalizeResult,
+    submitFinalTally,
 
-    // Helpers
     checkEligibility,
     getDKGStatus,
     getEncryptedTally,
