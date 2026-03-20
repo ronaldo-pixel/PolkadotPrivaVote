@@ -3,11 +3,7 @@ import { ethers } from 'ethers';
 
 export const VotingContext = createContext();
 
-// ── ABI — matches updated PrivateVoting.sol exactly ───────────────────────────
-// Key changes from previous version:
-//   - createProposal: tokenContract param removed
-//   - proposals() getter: tokenContract field removed, shareCount added
-//   - finalizeResult removed, replaced by submitFinalTally(uint256, uint256[10])
+// ── ABI ───────────────────────────────────────────────────────────────────────
 
 const CONTRACT_ABI = [
   'function proposalCount() external view returns (uint256)',
@@ -15,8 +11,8 @@ const CONTRACT_ABI = [
   'function hasVoted(uint256 proposalId, address voter) external view returns (bool)',
   'function verifierContract() external view returns (address)',
 
-  // Struct field order must match Solidity exactly for ABI decoding.
-  // tokenContract removed, shareCount added before partialCount.
+  // Keep full tuple ABI so ethers knows the shape for encoding calldata,
+  // but we NEVER use ethers to decode the return value — see safeGetProposal().
   'function proposals(uint256) external view returns (' +
     'uint256 id,' +
     'address creator,' +
@@ -42,13 +38,11 @@ const CONTRACT_ABI = [
   'function getResult(uint256 proposalId) external view returns (uint256[10] tally, uint256 winningOption, uint8 status)',
   'function getEncryptedTally(uint256 proposalId, uint256 optionIndex) external view returns (uint256[2] c1, uint256[2] c2)',
 
-  // tokenContract removed from createProposal
   'function createProposal(string description, string[] options, uint8 votingMode, uint256 duration, uint256 eligibilityThreshold, uint256 minVoterThreshold) external returns (uint256 proposalId)',
   'function submitPublicKeyShare(uint256 proposalId, uint256 shareX, uint256 shareY) external',
   'function castVote(uint256 proposalId, uint256[2] pA, uint256[2][2] pB, uint256[2] pC, uint256[44] pubSignals, uint256[2][2][10] encVote) external',
   'function closeVoting(uint256 proposalId) external',
   'function submitPartialDecrypt(uint256 proposalId, uint256[2][10] partials) external',
-  // finalizeResult replaced by submitFinalTally
   'function submitFinalTally(uint256 proposalId, uint256[10] tallies) external',
 
   'event ProposalCreated(uint256 indexed proposalId)',
@@ -82,8 +76,8 @@ const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 
 function getWalletProvider() {
   if (typeof window === 'undefined') return null;
-  if (window.talisman?.ethereum)       return window.talisman.ethereum;
-  if (window.ethereum?.isTalisman)     return window.ethereum;
+  if (window.talisman?.ethereum)    return window.talisman.ethereum;
+  if (window.ethereum?.isTalisman)  return window.ethereum;
   if (window.ethereum?.providers) {
     const talisman = window.ethereum.providers.find(p => p.isTalisman);
     if (talisman) return talisman;
@@ -107,13 +101,10 @@ async function waitForProvider(timeoutMs = 1000) {
   });
 }
 
-// ── Chain switching ───────────────────────────────────────────────────────────
-
 async function ensureCorrectChain(rawProvider) {
-  const chainIdHex    = await rawProvider.request({ method: 'eth_chainId' });
+  const chainIdHex     = await rawProvider.request({ method: 'eth_chainId' });
   const currentChainId = parseInt(chainIdHex, 16);
   if (currentChainId === REQUIRED_CHAIN_ID) return;
-
   try {
     await rawProvider.request({
       method: 'wallet_switchEthereumChain',
@@ -124,8 +115,9 @@ async function ensureCorrectChain(rawProvider) {
     const message = switchErr.message ?? '';
     const isUnknown =
       code === 4902 || code === -32603 ||
-      message.includes('Unrecognized') || message.includes('chain') || message.includes('network');
-
+      message.includes('Unrecognized') ||
+      message.includes('chain') ||
+      message.includes('network');
     if (isUnknown) {
       await rawProvider.request({
         method: 'wallet_addEthereumChain',
@@ -137,24 +129,152 @@ async function ensureCorrectChain(rawProvider) {
   }
 }
 
-// ── Proposal decoder ──────────────────────────────────────────────────────────
-// Reconstructs options from createProposal calldata (not in the struct getter).
-// Fetches finalResult only for REVEALED proposals.
+// ── safeGetProposal ───────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS
+// ───────────────
+// The Solidity compiler's auto-generated getter for a public mapping whose
+// value is a struct emits an ABI-encoded tuple return.  When that struct
+// contains a `string` field (dynamic type), the ABI encoding uses an offset
+// pointer in word 2 instead of inline data.  ethers v6's Result decoder
+// walks the head section and then jumps to the offset to read the string —
+// but on Polkadot Asset Hub (PolkaVM) the returned bytes are laid out
+// slightly differently from what a standard geth node produces, causing
+// ethers to miscalculate the string boundary and throw:
+//
+//   BUFFER_OVERRUN  (padding exceeds data length)
+//
+// The hex in the error message is the ASCII of an address, which confirms
+// that ethers is reading a 20-byte address field as the length prefix of
+// the string, then trying to slice that many bytes and running off the end.
+//
+// FIX
+// ───
+// Skip ethers' decoder entirely.  Issue a raw eth_call, receive the hex
+// return data, and manually extract each 32-byte word by index.  The layout
+// of the auto-generated getter for our struct (after skipping arrays/mappings
+// which the compiler drops from getters) is exactly:
+//
+//   word  0  : id                (uint256)  static
+//   word  1  : creator           (address)  static, right-padded to 32 bytes
+//   word  2  : offset → description          dynamic string pointer
+//   word  3  : votingMode        (uint8)    static
+//   word  4  : createdAtBlock    (uint256)  static
+//   word  5  : duration          (uint256)  static
+//   word  6  : startBlock        (uint256)  static
+//   word  7  : endBlock          (uint256)  static
+//   word  8  : eligibilityThreshold         static
+//   word  9  : minVoterThreshold (uint256)  static
+//   word 10  : status            (uint8)    static
+//   word 11  : voteCount         (uint256)  static
+//   word 12  : winningOption     (uint256)  static
+//   word 13  : endedAtBlock      (uint256)  static
+//   word 14  : shareCount        (uint256)  static
+//   word 15  : partialCount      (uint256)  static
+//   [dynamic tail: string length + utf-8 bytes, padded to 32]
+
+// Interface used only to build the calldata (encoding is fine; decoding is not)
+const PROPOSALS_CALLDATA_IFACE = new ethers.Interface([
+  'function proposals(uint256) external view returns (' +
+    'uint256 id,address creator,string description,uint8 votingMode,' +
+    'uint256 createdAtBlock,uint256 duration,uint256 startBlock,uint256 endBlock,' +
+    'uint256 eligibilityThreshold,uint256 minVoterThreshold,uint8 status,' +
+    'uint256 voteCount,uint256 winningOption,uint256 endedAtBlock,' +
+    'uint256 shareCount,uint256 partialCount)',
+]);
+
+async function safeGetProposal(provider, proposalId) {
+  const calldata = PROPOSALS_CALLDATA_IFACE.encodeFunctionData('proposals', [proposalId]);
+
+  const raw = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
+
+  if (!raw || raw === '0x') {
+    throw new Error(`proposals(${proposalId}) returned empty data — does the proposal exist?`);
+  }
+
+  const hex = raw.startsWith('0x') ? raw.slice(2) : raw;
+
+  // Each ABI word is 32 bytes = 64 hex chars
+  const WORD = 64;
+  const totalWords = Math.floor(hex.length / WORD);
+
+  if (totalWords < 16) {
+    throw new Error(
+      `proposals(${proposalId}) returned only ${totalWords} words, need at least 16. ` +
+      `Raw: ${raw.slice(0, 130)}…`
+    );
+  }
+
+  // Read a BigInt from word index n
+  const wordBig = (n) => BigInt('0x' + hex.slice(n * WORD, n * WORD + WORD));
+
+  // Address: last 20 bytes of word 1
+  const creatorWord = hex.slice(1 * WORD, 1 * WORD + WORD);
+  const creator = ethers.getAddress('0x' + creatorWord.slice(24)); // 24 hex = 12 bytes padding
+
+  // String: word 2 is a byte-offset from the start of the return data.
+  // Divide by 32 to get the word index of the length prefix.
+  const descByteOffset = Number(wordBig(2));
+  const descLenWordIdx = descByteOffset / 32;
+  const descLen        = Number(wordBig(descLenWordIdx));   // byte length of the string
+  const descDataStart  = (descLenWordIdx + 1) * WORD;       // hex char index
+  const descHex        = hex.slice(descDataStart, descDataStart + descLen * 2);
+  let description = '';
+  try {
+    description = ethers.toUtf8String('0x' + descHex);
+  } catch {
+    description = '';
+  }
+
+  return {
+    id:                   wordBig(0),
+    creator,
+    description,
+    votingMode:           wordBig(3),
+    createdAtBlock:       wordBig(4),
+    duration:             wordBig(5),
+    startBlock:           wordBig(6),
+    endBlock:             wordBig(7),
+    eligibilityThreshold: wordBig(8),
+    minVoterThreshold:    wordBig(9),
+    status:               wordBig(10),
+    voteCount:            wordBig(11),
+    winningOption:        wordBig(12),
+    endedAtBlock:         wordBig(13),
+    shareCount:           wordBig(14),
+    partialCount:         wordBig(15),
+  };
+}
+
+// ── decodeProposal ────────────────────────────────────────────────────────────
 
 async function decodeProposal(contract, provider, proposalId) {
-  const raw = await contract.proposals(proposalId);
+  const raw = await safeGetProposal(provider, proposalId);
 
+  // Reconstruct options from createProposal calldata via the ProposalCreated event tx
   let options = [];
   try {
     const filter = contract.filters.ProposalCreated(proposalId);
     const logs   = await contract.queryFilter(filter, 0, 'latest');
     if (logs.length > 0) {
-      const tx      = await provider.getTransaction(logs[0].transactionHash);
-      const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
-      options = Array.from(decoded.options);
+      const tx = await provider.getTransaction(logs[0].transactionHash);
+      if (tx && tx.data) {
+        // Guard: only decode if the 4-byte selector matches createProposal.
+        // If a different tx (e.g. castVote) is returned, skip to avoid BUFFER_OVERRUN.
+        const createSel = contract.interface.getFunction('createProposal').selector;
+        if (tx.data.slice(0, 10).toLowerCase() === createSel.toLowerCase()) {
+          const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
+          options = Array.from(decoded.options);
+        } else {
+          console.warn(
+            `[decodeProposal] selector mismatch for proposal ${proposalId} — ` +
+            `expected ${createSel}, got ${tx.data.slice(0, 10)}. Skipping options decode.`
+          );
+        }
+      }
     }
-  } catch {
-    options = [];
+  } catch (err) {
+    console.warn(`[decodeProposal] options fetch failed for proposal ${proposalId}:`, err.message);
   }
 
   let finalResult = null;
@@ -164,13 +284,13 @@ async function decodeProposal(contract, provider, proposalId) {
       const res   = await contract.getResult(proposalId);
       finalResult = Array.from(res.tally).map(t => Number(t));
       winner      = options[Number(res.winningOption)] ?? null;
-    } catch {
-      finalResult = null;
+    } catch (err) {
+      console.warn(`[decodeProposal] getResult failed for proposal ${proposalId}:`, err.message);
     }
   }
 
   return {
-    id:                   proposalId.toString(),
+    id:                   raw.id.toString(),
     creator:              raw.creator,
     description:          raw.description,
     options,
@@ -190,7 +310,6 @@ async function decodeProposal(contract, provider, proposalId) {
     endedAtBlock:         Number(raw.endedAtBlock),
     finalResult,
     winner,
-    // tokenContract removed — contract no longer stores it
   };
 }
 
@@ -215,9 +334,9 @@ export const VotingProvider = ({ children }) => {
   const rawProviderRef = useRef(null);
 
   const detectWalletType = (rawProvider) => {
-    if (!rawProvider)              return 'unknown';
-    if (rawProvider.isTalisman)    return 'talisman';
-    if (rawProvider.isMetaMask)    return 'metamask';
+    if (!rawProvider)           return 'unknown';
+    if (rawProvider.isTalisman) return 'talisman';
+    if (rawProvider.isMetaMask) return 'metamask';
     return 'unknown';
   };
 
@@ -272,10 +391,10 @@ export const VotingProvider = ({ children }) => {
           providerRef.current    = null;
           rawProviderRef.current = null;
         } else {
-          const address      = accounts[0];
-          const ethersP      = new ethers.BrowserProvider(rawProvider);
+          const address  = accounts[0];
+          const ethersP  = new ethers.BrowserProvider(rawProvider);
           providerRef.current = ethersP;
-          const contract     = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
+          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
           contractRef.current = contract;
           setUserAddress(address);
           resolveKeyholder(address, contract);
@@ -290,13 +409,12 @@ export const VotingProvider = ({ children }) => {
       rawProvider.on('accountsChanged', onAccountsChanged);
       rawProvider.on('chainChanged',    onChainChanged);
 
-      // Auto-restore existing session (no popup)
       rawProvider.request({ method: 'eth_accounts' }).then((accounts) => {
         if (accounts && accounts.length > 0) {
-          const address      = accounts[0];
-          const ethersP      = new ethers.BrowserProvider(rawProvider);
+          const address  = accounts[0];
+          const ethersP  = new ethers.BrowserProvider(rawProvider);
           providerRef.current = ethersP;
-          const contract     = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
+          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
           contractRef.current = contract;
           setUserAddress(address);
           setWalletType(detectWalletType(rawProvider));
@@ -329,15 +447,13 @@ export const VotingProvider = ({ children }) => {
       rawProviderRef.current = rawProvider;
       setWalletType(detectWalletType(rawProvider));
 
-      // Request accounts first — Talisman rejects chain switch before connect
       const accounts = await rawProvider.request({ method: 'eth_requestAccounts' });
       if (!accounts || accounts.length === 0) throw new Error('No accounts returned from wallet');
 
-      // Switch to Polkadot Asset Hub after account approved
       await ensureCorrectChain(rawProvider);
 
-      const address      = accounts[0];
-      const ethersP      = new ethers.BrowserProvider(rawProvider);
+      const address  = accounts[0];
+      const ethersP  = new ethers.BrowserProvider(rawProvider);
       providerRef.current = ethersP;
       setUserAddress(address);
 
@@ -386,8 +502,7 @@ export const VotingProvider = ({ children }) => {
       const contract = getReadContract();
       if (!contract) { setLoading(false); return; }
 
-      const count = Number(await contract.proposalCount());
-      console
+      const count    = Number(await contract.proposalCount());
       if (count === 0) { setProposals([]); setLoading(false); return; }
 
       const provider = providerRef.current;
@@ -450,16 +565,15 @@ export const VotingProvider = ({ children }) => {
     }
   }, [getReadContract]);
 
-  const getActiveProposals   = useCallback(() => proposals.filter(p => p.status === 'PENDING_DKG' || p.status === 'ACTIVE'),  [proposals]);
-  const getArchivedProposals = useCallback(() => proposals.filter(p => p.status === 'REVEALED'    || p.status === 'CANCELLED'), [proposals]);
-  const getEndedProposals    = useCallback(() => proposals.filter(p => p.status === 'ENDED'),                                    [proposals]);
+  const getActiveProposals   = useCallback(() => proposals.filter(p => p.status === 'PENDING_DKG' || p.status === 'ACTIVE'),    [proposals]);
+  const getArchivedProposals = useCallback(() => proposals.filter(p => p.status === 'REVEALED'    || p.status === 'CANCELLED'),  [proposals]);
+  const getEndedProposals    = useCallback(() => proposals.filter(p => p.status === 'ENDED'),                                     [proposals]);
 
-  // ── createProposal — tokenContract removed ────────────────────────────────
+  // ── createProposal ────────────────────────────────────────────────────────
 
   const createProposal = useCallback(async ({
     description, options, votingMode, duration,
     eligibilityThreshold, minVoterThreshold,
-    // tokenContract intentionally omitted — removed from contract
   }) => {
     setLoading(true);
     setError(null);
@@ -467,14 +581,8 @@ export const VotingProvider = ({ children }) => {
       const contract = await getWriteContract();
       const modeEnum = votingMode === 'quadratic' ? 1 : 0;
 
-      const tx = await contract.createProposal(
-        description,
-        options,
-        modeEnum,
-        duration,
-        eligibilityThreshold,
-        minVoterThreshold,
-        // no tokenContract
+      const tx      = await contract.createProposal(
+        description, options, modeEnum, duration, eligibilityThreshold, minVoterThreshold,
       );
       const receipt = await tx.wait();
 
@@ -532,6 +640,7 @@ export const VotingProvider = ({ children }) => {
     setError(null);
     try {
       if (usedNullifiers.has(nullifier)) throw new Error('Nullifier already used — vote already cast');
+
       const contract = await getWriteContract();
       const tx = await contract.castVote(proposalId, pA, pB, pC, pubSignals, encVote);
       await tx.wait();
@@ -539,11 +648,27 @@ export const VotingProvider = ({ children }) => {
       const pid = proposalId.toString();
       setUsedNullifiers(prev => new Set([...prev, nullifier]));
       setUserVotes(prev => prev.includes(pid) ? prev : [...prev, pid]);
-      setProposals(prev => prev.map(p =>
-        p.id === pid
-          ? { ...p, voteCount: p.voteCount + 1, totalParticipation: p.totalParticipation + 1 }
-          : p
-      ));
+
+      // Refresh from chain after vote to keep proposals[] consistent.
+      // safeGetProposal is used inside decodeProposal so this is safe.
+      try {
+        const refreshed = await decodeProposal(
+          getReadContract(),
+          providerRef.current,
+          Number(pid)
+        );
+        if (refreshed) {
+          setProposals(prev => prev.map(p => p.id === pid ? refreshed : p));
+          setProposalDetail(prev => (prev?.id === pid) ? { ...prev, ...refreshed } : prev);
+        }
+      } catch (refreshErr) {
+        console.warn('[submitVote] post-vote refresh failed, using optimistic update:', refreshErr.message);
+        setProposals(prev => prev.map(p =>
+          p.id === pid
+            ? { ...p, voteCount: p.voteCount + 1, totalParticipation: p.totalParticipation + 1 }
+            : p
+        ));
+      }
 
       setLoading(false);
       return { success: true, nullifier };
@@ -552,7 +677,7 @@ export const VotingProvider = ({ children }) => {
       setLoading(false);
       throw err;
     }
-  }, [getWriteContract, usedNullifiers]);
+  }, [getWriteContract, getReadContract, usedNullifiers]);
 
   // ── closeVoting ───────────────────────────────────────────────────────────
 
@@ -592,11 +717,7 @@ export const VotingProvider = ({ children }) => {
     }
   }, [getWriteContract, getProposalDetail]);
 
-  // ── submitFinalTally — replaces finalizeResult ────────────────────────────
-  // Called after all 3 keyholders have submitted partial decryptions.
-  // tallies: uint256[10] — the plaintext vote totals computed off-chain by
-  // multiplying the decrypted M*G point back to a scalar via discrete log.
-  // The contract verifies each tally[i]*G == mg before accepting.
+  // ── submitFinalTally ──────────────────────────────────────────────────────
 
   const submitFinalTally = useCallback(async (proposalId, tallies) => {
     setLoading(true);
@@ -618,27 +739,21 @@ export const VotingProvider = ({ children }) => {
     }
   }, [getWriteContract, initializeProposals]);
 
-  // ── checkEligibility — now uses native ETH balance ────────────────────────
-  // Contract changed from ERC-20 balanceOf to msg.sender.balance (native ETH).
-  // We use provider.getBalance(address) to match.
+  // ── checkEligibility ─────────────────────────────────────────────────────
 
   const checkEligibility = useCallback(async (proposalId) => {
     if (!userAddress) return false;
     try {
-      const contract = getReadContract();
-      if (!contract) return false;
-      const raw = await contract.proposals(proposalId);
-      if (Number(raw.eligibilityThreshold) === 0) return true;
-
-      // Use native ETH balance — contract uses msg.sender.balance
       const provider = providerRef.current;
       if (!provider) return false;
+      const raw = await safeGetProposal(provider, proposalId);
+      if (Number(raw.eligibilityThreshold) === 0) return true;
       const balance = await provider.getBalance(userAddress);
       return balance >= raw.eligibilityThreshold;
     } catch {
       return false;
     }
-  }, [userAddress, getReadContract]);
+  }, [userAddress]);
 
   // ── getDKGStatus ──────────────────────────────────────────────────────────
 
@@ -705,7 +820,7 @@ export const VotingProvider = ({ children }) => {
     submitVote,
     closeVoting,
     submitPartialDecryption,
-    submitFinalTally,       // replaces finalizeResult
+    submitFinalTally,
 
     checkEligibility,
     getDKGStatus,
