@@ -1,7 +1,6 @@
 import { ethers } from 'ethers';
 
 // ─── Format utilities ──────────────────────────────────────────────────────────
-// Used across all pages for display formatting. No contract dependency.
 
 export const formatUtils = {
   formatAddress(address) {
@@ -50,8 +49,6 @@ export const formatUtils = {
 };
 
 // ─── Proposal status utilities ─────────────────────────────────────────────────
-// Maps on-chain enum integers / string labels to display values.
-// Color values match the CMD terminal design system tokens.
 
 export const proposalStatusUtils = {
   STATUS_COLORS: {
@@ -102,9 +99,6 @@ export const proposalStatusUtils = {
 };
 
 // ─── Vote weight calculation ───────────────────────────────────────────────────
-// Mirrors the contract's weight logic for off-chain display.
-// NORMAL: weight = tokenBalance
-// QUADRATIC: weight = sqrt(tokenBalance)
 
 export const voteWeightCalculator = {
   calculate(votingMode, tokenBalance) {
@@ -125,22 +119,35 @@ export const voteWeightCalculator = {
 };
 
 // ─── Nullifier utilities ───────────────────────────────────────────────────────
-// Real nullifier generation using keccak256 via ethers.
-// The nullifier is a deterministic commitment: hash(userSecret + proposalId).
-// It is submitted with a ZK proof to prevent double voting without revealing identity.
+//
+// PREVIOUS BUG:
+//   userSecret = address + proposalId as a plain string e.g. "0x4a94...bef0"
+//   ethers.toUtf8Bytes("0x4a94...bef0") = 42 bytes  (the string is 42 chars)
+//   ethers.zeroPadBytes(<42 bytes>, 32) → BUFFER_OVERRUN
+//   because zeroPadBytes cannot truncate — it only pads UP to the target length.
+//
+// FIX:
+//   Hash the secret string directly with keccak256 (produces exactly 32 bytes),
+//   then pack with the proposalId uint256 and hash again.
+//   This is equivalent to:  keccak256(abi.encodePacked(keccak256(secret), proposalId))
+//   — a standard nullifier construction that is always safe regardless of secret length.
 
 export const nullifierUtils = {
   generate(userSecret, proposalId) {
     if (!userSecret || proposalId === undefined || proposalId === null) {
       throw new Error('nullifier requires a user secret and proposal ID');
     }
+
+    // Step 1: hash the secret string → always 32 bytes, regardless of input length
+    const secretHash = ethers.keccak256(ethers.toUtf8Bytes(String(userSecret)));
+
+    // Step 2: pack (bytes32 secretHash, uint256 proposalId) and hash again
+    // secretHash is already a 0x-prefixed 32-byte hex string — use it directly
     const encoded = ethers.solidityPacked(
       ['bytes32', 'uint256'],
-      [
-        ethers.zeroPadBytes(ethers.toUtf8Bytes(String(userSecret)), 32),
-        BigInt(proposalId),
-      ]
+      [secretHash, BigInt(proposalId)]
     );
+
     return ethers.keccak256(encoded);
   },
 
@@ -150,16 +157,6 @@ export const nullifierUtils = {
 };
 
 // ─── Encryption utilities ──────────────────────────────────────────────────────
-// ElGamal encryption over BabyJubJub is required to encrypt votes.
-//
-// PRODUCTION: integrate circomlibjs (https://github.com/iden3/circomlibjs)
-//   import { buildBabyjub } from 'circomlibjs';
-//   const babyjub = await buildBabyjub();
-//   const encryptedVote = babyjub.mulPointEscalar(publicKey, voteScalar);
-//
-// The functions below are structurally correct stubs that document the expected
-// input/output shapes. They throw in production if called without a real
-// circomlibjs integration, preventing silent mock data from reaching the contract.
 
 export const encryptionUtils = {
   encryptVote(optionIndex, electionPublicKey) {
@@ -169,15 +166,6 @@ export const encryptionUtils = {
         'DKG must complete before votes can be encrypted.'
       );
     }
-    // TODO: replace with real ElGamal encryption using circomlibjs
-    // const babyjub = await buildBabyjub();
-    // const r = babyjub.F.random();           // ephemeral scalar
-    // const c1 = babyjub.mulPointEscalar(babyjub.Base8, r);
-    // const c2 = babyjub.addPoint(
-    //   babyjub.mulPointEscalar(babyjub.Base8, voteScalar),
-    //   babyjub.mulPointEscalar([epkX, epkY], r)
-    // );
-    // return { c1, c2, r };
     throw new Error(
       'encryptVote: real ElGamal encryption not implemented. ' +
       'Install circomlibjs and replace this stub.'
@@ -185,8 +173,6 @@ export const encryptionUtils = {
   },
 
   buildEncVoteArray(encryptedOptions) {
-    // Packs the 10-option enc vote array expected by castVote:
-    // uint256[2][2][10] encVote  →  encVote[option][c1/c2][x/y]
     if (!Array.isArray(encryptedOptions) || encryptedOptions.length !== 10) {
       throw new Error('buildEncVoteArray: exactly 10 option ciphertexts required');
     }
@@ -198,33 +184,9 @@ export const encryptionUtils = {
 };
 
 // ─── ZK proof utilities ────────────────────────────────────────────────────────
-// Groth16 proof generation for vote.circom is done off-chain by snarkjs.
-//
-// PRODUCTION setup:
-//   import { groth16 } from 'snarkjs';
-//   const { proof, publicSignals } = await groth16.fullProve(
-//     input,           // { claimedBalance, votingMode, publicKey, encryptedVote }
-//     'vote.wasm',     // compiled circuit
-//     'vote_final.zkey' // proving key
-//   );
-//
-// The proof is then passed directly to castVote as (pA, pB, pC, pubSignals).
 
 export const zkProofUtils = {
   async generateVoteProof(circuitInput) {
-    // circuitInput shape:
-    // {
-    //   claimedBalance: bigint,
-    //   votingMode:     0 | 1,
-    //   publicKey:      [bigint, bigint],    // election public key [x, y]
-    //   encryptedVote:  bigint[10][2][2],    // [option][c1/c2][x/y]
-    // }
-    //
-    // TODO: replace with:
-    // const { proof, publicSignals } = await groth16.fullProve(
-    //   circuitInput, '/vote.wasm', '/vote_final.zkey'
-    // );
-    // return formatProofForContract(proof, publicSignals);
     throw new Error(
       'generateVoteProof: snarkjs integration not implemented. ' +
       'Provide vote.wasm and vote_final.zkey and replace this stub.'
@@ -232,8 +194,6 @@ export const zkProofUtils = {
   },
 
   formatProofForContract(proof, publicSignals) {
-    // Converts snarkjs proof output into the arrays castVote expects:
-    // pA: uint256[2], pB: uint256[2][2], pC: uint256[2], pubSignals: uint256[44]
     return {
       pA: proof.pi_a.slice(0, 2).map(BigInt),
       pB: [
@@ -246,14 +206,11 @@ export const zkProofUtils = {
   },
 
   async generatePartialDecryptionProof(partialDecryption) {
-    // TODO: integrate decryption proof circuit if required
     throw new Error('generatePartialDecryptionProof: not implemented');
   },
 };
 
-// ─── Re-export contractMethods as a thin adapter ───────────────────────────────
-// Any legacy import of contractMethods is redirected to VotingContext methods.
-// These throw with a clear message so call sites are easy to find and migrate.
+// ─── Legacy contractMethods shim ──────────────────────────────────────────────
 
 export const contractMethods = {
   createProposal() {

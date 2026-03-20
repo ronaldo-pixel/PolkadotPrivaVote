@@ -3,20 +3,15 @@ import { ethers } from 'ethers';
 
 export const VotingContext = createContext();
 
-// ── ABI ───────────────────────────────────────────────────────────────────────
-
 const CONTRACT_ABI = [
   'function proposalCount() external view returns (uint256)',
   'function keyholders(uint256) external view returns (address)',
   'function hasVoted(uint256 proposalId, address voter) external view returns (bool)',
   'function verifierContract() external view returns (address)',
 
-  // Keep full tuple ABI so ethers knows the shape for encoding calldata,
-  // but we NEVER use ethers to decode the return value — see safeGetProposal().
-  'function proposals(uint256) external view returns (' +
+  'function getProposalView(uint256 proposalId) external view returns (' +
     'uint256 id,' +
     'address creator,' +
-    'string description,' +
     'uint8 votingMode,' +
     'uint256 createdAtBlock,' +
     'uint256 duration,' +
@@ -31,6 +26,8 @@ const CONTRACT_ABI = [
     'uint256 shareCount,' +
     'uint256 partialCount' +
   ')',
+
+  'function getProposalDescription(uint256 proposalId) external view returns (string)',
 
   'function getElectionPublicKey(uint256 proposalId) external view returns (uint256 x, uint256 y, uint8 status, uint256 sharesIn)',
   'function getPublicKeyShare(uint256 proposalId, uint256 keyholderIndex) external view returns (uint256 x, uint256 y, bool submitted)',
@@ -55,8 +52,6 @@ const CONTRACT_ABI = [
   'event ResultRevealed(uint256 indexed proposalId, uint256 winningOption)',
 ];
 
-// ── Polkadot Asset Hub EVM config ─────────────────────────────────────────────
-
 const POLKADOT_TESTNET = {
   chainId:           '0x190F7B1',
   chainName:         'Polkadot Asset Hub Testnet',
@@ -66,13 +61,13 @@ const POLKADOT_TESTNET = {
 };
 
 const REQUIRED_CHAIN_ID = 420420417;
-
 const STATUS_MAP = { 0: 'PENDING_DKG', 1: 'ACTIVE', 2: 'ENDED', 3: 'REVEALED', 4: 'CANCELLED' };
 const MODE_MAP   = { 0: 'normal', 1: 'quadratic' };
-
 const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 
-// ── Wallet provider detection (Talisman-first) ────────────────────────────────
+// ── Debug logger ──────────────────────────────────────────────────────────────
+const DBG = (...args) => console.log('[VotingContext]', ...args);
+const ERR = (...args) => console.error('[VotingContext ERROR]', ...args);
 
 function getWalletProvider() {
   if (typeof window === 'undefined') return null;
@@ -104,6 +99,7 @@ async function waitForProvider(timeoutMs = 1000) {
 async function ensureCorrectChain(rawProvider) {
   const chainIdHex     = await rawProvider.request({ method: 'eth_chainId' });
   const currentChainId = parseInt(chainIdHex, 16);
+  DBG(`ensureCorrectChain — current: ${currentChainId}, required: ${REQUIRED_CHAIN_ID}`);
   if (currentChainId === REQUIRED_CHAIN_ID) return;
   try {
     await rawProvider.request({
@@ -119,198 +115,134 @@ async function ensureCorrectChain(rawProvider) {
       message.includes('chain') ||
       message.includes('network');
     if (isUnknown) {
-      await rawProvider.request({
-        method: 'wallet_addEthereumChain',
-        params: [POLKADOT_TESTNET],
-      });
+      await rawProvider.request({ method: 'wallet_addEthereumChain', params: [POLKADOT_TESTNET] });
     } else {
       throw switchErr;
     }
   }
 }
 
-// ── safeGetProposal ───────────────────────────────────────────────────────────
-//
-// WHY THIS EXISTS
-// ───────────────
-// The Solidity compiler's auto-generated getter for a public mapping whose
-// value is a struct emits an ABI-encoded tuple return.  When that struct
-// contains a `string` field (dynamic type), the ABI encoding uses an offset
-// pointer in word 2 instead of inline data.  ethers v6's Result decoder
-// walks the head section and then jumps to the offset to read the string —
-// but on Polkadot Asset Hub (PolkaVM) the returned bytes are laid out
-// slightly differently from what a standard geth node produces, causing
-// ethers to miscalculate the string boundary and throw:
-//
-//   BUFFER_OVERRUN  (padding exceeds data length)
-//
-// The hex in the error message is the ASCII of an address, which confirms
-// that ethers is reading a 20-byte address field as the length prefix of
-// the string, then trying to slice that many bytes and running off the end.
-//
-// FIX
-// ───
-// Skip ethers' decoder entirely.  Issue a raw eth_call, receive the hex
-// return data, and manually extract each 32-byte word by index.  The layout
-// of the auto-generated getter for our struct (after skipping arrays/mappings
-// which the compiler drops from getters) is exactly:
-//
-//   word  0  : id                (uint256)  static
-//   word  1  : creator           (address)  static, right-padded to 32 bytes
-//   word  2  : offset → description          dynamic string pointer
-//   word  3  : votingMode        (uint8)    static
-//   word  4  : createdAtBlock    (uint256)  static
-//   word  5  : duration          (uint256)  static
-//   word  6  : startBlock        (uint256)  static
-//   word  7  : endBlock          (uint256)  static
-//   word  8  : eligibilityThreshold         static
-//   word  9  : minVoterThreshold (uint256)  static
-//   word 10  : status            (uint8)    static
-//   word 11  : voteCount         (uint256)  static
-//   word 12  : winningOption     (uint256)  static
-//   word 13  : endedAtBlock      (uint256)  static
-//   word 14  : shareCount        (uint256)  static
-//   word 15  : partialCount      (uint256)  static
-//   [dynamic tail: string length + utf-8 bytes, padded to 32]
-
-// Interface used only to build the calldata (encoding is fine; decoding is not)
-const PROPOSALS_CALLDATA_IFACE = new ethers.Interface([
-  'function proposals(uint256) external view returns (' +
-    'uint256 id,address creator,string description,uint8 votingMode,' +
-    'uint256 createdAtBlock,uint256 duration,uint256 startBlock,uint256 endBlock,' +
-    'uint256 eligibilityThreshold,uint256 minVoterThreshold,uint8 status,' +
-    'uint256 voteCount,uint256 winningOption,uint256 endedAtBlock,' +
-    'uint256 shareCount,uint256 partialCount)',
-]);
-
-async function safeGetProposal(provider, proposalId) {
-  const calldata = PROPOSALS_CALLDATA_IFACE.encodeFunctionData('proposals', [proposalId]);
-
-  const raw = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
-
-  if (!raw || raw === '0x') {
-    throw new Error(`proposals(${proposalId}) returned empty data — does the proposal exist?`);
-  }
-
-  const hex = raw.startsWith('0x') ? raw.slice(2) : raw;
-
-  // Each ABI word is 32 bytes = 64 hex chars
-  const WORD = 64;
-  const totalWords = Math.floor(hex.length / WORD);
-
-  if (totalWords < 16) {
-    throw new Error(
-      `proposals(${proposalId}) returned only ${totalWords} words, need at least 16. ` +
-      `Raw: ${raw.slice(0, 130)}…`
-    );
-  }
-
-  // Read a BigInt from word index n
-  const wordBig = (n) => BigInt('0x' + hex.slice(n * WORD, n * WORD + WORD));
-
-  // Address: last 20 bytes of word 1
-  const creatorWord = hex.slice(1 * WORD, 1 * WORD + WORD);
-  const creator = ethers.getAddress('0x' + creatorWord.slice(24)); // 24 hex = 12 bytes padding
-
-  // String: word 2 is a byte-offset from the start of the return data.
-  // Divide by 32 to get the word index of the length prefix.
-  const descByteOffset = Number(wordBig(2));
-  const descLenWordIdx = descByteOffset / 32;
-  const descLen        = Number(wordBig(descLenWordIdx));   // byte length of the string
-  const descDataStart  = (descLenWordIdx + 1) * WORD;       // hex char index
-  const descHex        = hex.slice(descDataStart, descDataStart + descLen * 2);
-  let description = '';
-  try {
-    description = ethers.toUtf8String('0x' + descHex);
-  } catch {
-    description = '';
-  }
-
-  return {
-    id:                   wordBig(0),
-    creator,
-    description,
-    votingMode:           wordBig(3),
-    createdAtBlock:       wordBig(4),
-    duration:             wordBig(5),
-    startBlock:           wordBig(6),
-    endBlock:             wordBig(7),
-    eligibilityThreshold: wordBig(8),
-    minVoterThreshold:    wordBig(9),
-    status:               wordBig(10),
-    voteCount:            wordBig(11),
-    winningOption:        wordBig(12),
-    endedAtBlock:         wordBig(13),
-    shareCount:           wordBig(14),
-    partialCount:         wordBig(15),
-  };
-}
-
 // ── decodeProposal ────────────────────────────────────────────────────────────
 
 async function decodeProposal(contract, provider, proposalId) {
-  const raw = await safeGetProposal(provider, proposalId);
+  DBG(`decodeProposal(${proposalId}) — start`);
 
-  // Reconstruct options from createProposal calldata via the ProposalCreated event tx
+  // ── Step 1: getProposalView ────────────────────────────────────────────────
+  DBG(`decodeProposal(${proposalId}) — calling getProposalView...`);
+  let v;
+  try {
+    // Log raw bytes BEFORE ethers decodes them so we can see what PolkaVM returns
+    const iface    = contract.interface;
+    const calldata = iface.encodeFunctionData('getProposalView', [proposalId]);
+    DBG(`decodeProposal(${proposalId}) — getProposalView calldata: ${calldata}`);
+
+    const rawHex = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
+    DBG(`decodeProposal(${proposalId}) — getProposalView raw response (${rawHex?.length} chars): ${rawHex}`);
+
+    // Now let ethers decode it (this is where BUFFER_OVERRUN fires if still broken)
+    v = await contract.getProposalView(proposalId);
+    DBG(`decodeProposal(${proposalId}) — getProposalView decoded OK:`, {
+      id:             v.id?.toString(),
+      creator:        v.creator,
+      votingMode:     v.votingMode?.toString(),
+      createdAtBlock: v.createdAtBlock?.toString(),
+      status:         v.status?.toString(),
+      voteCount:      v.voteCount?.toString(),
+      shareCount:     v.shareCount?.toString(),
+      partialCount:   v.partialCount?.toString(),
+    });
+  } catch (err) {
+    ERR(`decodeProposal(${proposalId}) — getProposalView FAILED:`, err.message);
+    ERR(`decodeProposal(${proposalId}) — full error:`, err);
+    throw err;
+  }
+
+  // ── Step 2: getProposalDescription ────────────────────────────────────────
+  DBG(`decodeProposal(${proposalId}) — calling getProposalDescription...`);
+  let description = '';
+  try {
+    const iface    = contract.interface;
+    const calldata = iface.encodeFunctionData('getProposalDescription', [proposalId]);
+    const rawHex   = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
+    DBG(`decodeProposal(${proposalId}) — getProposalDescription raw (${rawHex?.length} chars): ${rawHex}`);
+
+    description = await contract.getProposalDescription(proposalId);
+    DBG(`decodeProposal(${proposalId}) — description: "${description}"`);
+  } catch (err) {
+    ERR(`decodeProposal(${proposalId}) — getProposalDescription FAILED:`, err.message);
+  }
+
+  // ── Step 3: options from createProposal calldata ──────────────────────────
+  DBG(`decodeProposal(${proposalId}) — fetching options from ProposalCreated logs...`);
   let options = [];
   try {
     const filter = contract.filters.ProposalCreated(proposalId);
     const logs   = await contract.queryFilter(filter, 0, 'latest');
+    DBG(`decodeProposal(${proposalId}) — ProposalCreated logs found: ${logs.length}`);
+
     if (logs.length > 0) {
-      const tx = await provider.getTransaction(logs[0].transactionHash);
-      if (tx && tx.data) {
-        // Guard: only decode if the 4-byte selector matches createProposal.
-        // If a different tx (e.g. castVote) is returned, skip to avoid BUFFER_OVERRUN.
+      const txHash = logs[0].transactionHash;
+      DBG(`decodeProposal(${proposalId}) — fetching tx ${txHash}...`);
+      const tx = await provider.getTransaction(txHash);
+      DBG(`decodeProposal(${proposalId}) — tx.data selector: ${tx?.data?.slice(0, 10)}`);
+
+      if (tx?.data) {
         const createSel = contract.interface.getFunction('createProposal').selector;
+        DBG(`decodeProposal(${proposalId}) — createProposal selector: ${createSel}`);
+
         if (tx.data.slice(0, 10).toLowerCase() === createSel.toLowerCase()) {
           const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
           options = Array.from(decoded.options);
+          DBG(`decodeProposal(${proposalId}) — options decoded: ${JSON.stringify(options)}`);
         } else {
-          console.warn(
-            `[decodeProposal] selector mismatch for proposal ${proposalId} — ` +
-            `expected ${createSel}, got ${tx.data.slice(0, 10)}. Skipping options decode.`
-          );
+          ERR(`decodeProposal(${proposalId}) — selector MISMATCH — expected ${createSel}, got ${tx.data.slice(0, 10)}`);
         }
       }
     }
   } catch (err) {
-    console.warn(`[decodeProposal] options fetch failed for proposal ${proposalId}:`, err.message);
+    ERR(`decodeProposal(${proposalId}) — options fetch FAILED:`, err.message);
   }
 
+  // ── Step 4: final result if REVEALED ──────────────────────────────────────
   let finalResult = null;
   let winner      = null;
-  if (Number(raw.status) === 3) {
+  if (Number(v.status) === 3) {
+    DBG(`decodeProposal(${proposalId}) — status=REVEALED, fetching getResult...`);
     try {
       const res   = await contract.getResult(proposalId);
       finalResult = Array.from(res.tally).map(t => Number(t));
       winner      = options[Number(res.winningOption)] ?? null;
+      DBG(`decodeProposal(${proposalId}) — getResult: tally=${JSON.stringify(finalResult)}, winner="${winner}"`);
     } catch (err) {
-      console.warn(`[decodeProposal] getResult failed for proposal ${proposalId}:`, err.message);
+      ERR(`decodeProposal(${proposalId}) — getResult FAILED:`, err.message);
     }
   }
 
-  return {
-    id:                   raw.id.toString(),
-    creator:              raw.creator,
-    description:          raw.description,
+  const result = {
+    id:                   v.id.toString(),
+    creator:              v.creator,
+    description,
     options,
-    votingMode:           MODE_MAP[Number(raw.votingMode)] ?? 'normal',
-    createdAtBlock:       Number(raw.createdAtBlock),
-    duration:             Number(raw.duration),
-    startBlock:           Number(raw.startBlock),
-    endBlock:             Number(raw.endBlock),
-    eligibilityThreshold: Number(raw.eligibilityThreshold),
-    minVoterThreshold:    Number(raw.minVoterThreshold),
-    status:               STATUS_MAP[Number(raw.status)] ?? 'PENDING_DKG',
-    voteCount:            Number(raw.voteCount),
-    totalParticipation:   Number(raw.voteCount),
-    shareCount:           Number(raw.shareCount),
-    partialCount:         Number(raw.partialCount),
-    winningOption:        Number(raw.winningOption),
-    endedAtBlock:         Number(raw.endedAtBlock),
+    votingMode:           MODE_MAP[Number(v.votingMode)] ?? 'normal',
+    createdAtBlock:       Number(v.createdAtBlock),
+    duration:             Number(v.duration),
+    startBlock:           Number(v.startBlock),
+    endBlock:             Number(v.endBlock),
+    eligibilityThreshold: Number(v.eligibilityThreshold),
+    minVoterThreshold:    Number(v.minVoterThreshold),
+    status:               STATUS_MAP[Number(v.status)] ?? 'PENDING_DKG',
+    voteCount:            Number(v.voteCount),
+    totalParticipation:   Number(v.voteCount),
+    shareCount:           Number(v.shareCount),
+    partialCount:         Number(v.partialCount),
+    winningOption:        Number(v.winningOption),
+    endedAtBlock:         Number(v.endedAtBlock),
     finalResult,
     winner,
   };
+
+  DBG(`decodeProposal(${proposalId}) — complete:`, result);
+  return result;
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -342,16 +274,20 @@ export const VotingProvider = ({ children }) => {
 
   const resolveKeyholder = useCallback(async (address, contract) => {
     if (!CONTRACT_ADDRESS || !address) return;
+    DBG(`resolveKeyholder — checking address ${address}`);
     try {
       const kh  = await Promise.all([
         contract.keyholders(0),
         contract.keyholders(1),
         contract.keyholders(2),
       ]);
+      DBG(`resolveKeyholder — keyholders: ${JSON.stringify(kh)}`);
       const idx = kh.findIndex(k => k.toLowerCase() === address.toLowerCase());
+      DBG(`resolveKeyholder — index: ${idx}`);
       setIsKeyholder(idx !== -1);
       setKeyholderIndex(idx !== -1 ? idx : null);
-    } catch {
+    } catch (err) {
+      ERR('resolveKeyholder FAILED:', err.message);
       setIsKeyholder(false);
       setKeyholderIndex(null);
     }
@@ -360,11 +296,15 @@ export const VotingProvider = ({ children }) => {
   const getReadContract = useCallback(() => {
     if (contractRef.current) return contractRef.current;
     const raw = rawProviderRef.current;
-    if (!raw || !CONTRACT_ADDRESS) return null;
+    if (!raw || !CONTRACT_ADDRESS) {
+      ERR('getReadContract — no provider or contract address');
+      return null;
+    }
     const p = new ethers.BrowserProvider(raw);
     providerRef.current = p;
     const c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, p);
     contractRef.current = c;
+    DBG('getReadContract — created new read contract');
     return c;
   }, []);
 
@@ -373,6 +313,7 @@ export const VotingProvider = ({ children }) => {
     if (!raw || !CONTRACT_ADDRESS) throw new Error('Wallet not connected or contract address missing');
     const provider = new ethers.BrowserProvider(raw);
     const signer   = await provider.getSigner();
+    DBG('getWriteContract — signer:', await signer.getAddress());
     return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
   }, []);
 
@@ -381,8 +322,10 @@ export const VotingProvider = ({ children }) => {
   useEffect(() => {
     const setupListeners = (rawProvider) => {
       rawProviderRef.current = rawProvider;
+      DBG('setupListeners — wallet type:', detectWalletType(rawProvider));
 
       const onAccountsChanged = (accounts) => {
+        DBG('accountsChanged:', accounts);
         if (!accounts || accounts.length === 0) {
           setUserAddress(null);
           setIsKeyholder(false);
@@ -402,6 +345,7 @@ export const VotingProvider = ({ children }) => {
       };
 
       const onChainChanged = (newChainId) => {
+        DBG('chainChanged:', newChainId, '→', parseInt(newChainId, 16));
         setChainId(parseInt(newChainId, 16));
         window.location.reload();
       };
@@ -410,6 +354,7 @@ export const VotingProvider = ({ children }) => {
       rawProvider.on('chainChanged',    onChainChanged);
 
       rawProvider.request({ method: 'eth_accounts' }).then((accounts) => {
+        DBG('eth_accounts (auto-restore):', accounts);
         if (accounts && accounts.length > 0) {
           const address  = accounts[0];
           const ethersP  = new ethers.BrowserProvider(rawProvider);
@@ -420,11 +365,12 @@ export const VotingProvider = ({ children }) => {
           setWalletType(detectWalletType(rawProvider));
           resolveKeyholder(address, contract);
         }
-      }).catch(() => {});
+      }).catch((err) => ERR('eth_accounts FAILED:', err.message));
 
       rawProvider.request({ method: 'eth_chainId' }).then(hex => {
+        DBG('eth_chainId:', hex, '→', parseInt(hex, 16));
         setChainId(parseInt(hex, 16));
-      }).catch(() => {});
+      }).catch((err) => ERR('eth_chainId FAILED:', err.message));
 
       return () => {
         rawProvider.removeListener('accountsChanged', onAccountsChanged);
@@ -432,12 +378,20 @@ export const VotingProvider = ({ children }) => {
       };
     };
 
-    waitForProvider(1500).then(p => { if (p) setupListeners(p); });
+    waitForProvider(1500).then(p => {
+      if (p) {
+        DBG('Provider found:', p.constructor?.name ?? typeof p);
+        setupListeners(p);
+      } else {
+        ERR('No wallet provider found after 1500ms');
+      }
+    });
   }, [resolveKeyholder]);
 
   // ── connectWallet ─────────────────────────────────────────────────────────
 
   const connectWallet = useCallback(async () => {
+    DBG('connectWallet — start');
     setLoading(true);
     setError(null);
     try {
@@ -445,9 +399,12 @@ export const VotingProvider = ({ children }) => {
       if (!rawProvider) throw new Error('No wallet found. Install Talisman from https://talisman.xyz');
 
       rawProviderRef.current = rawProvider;
-      setWalletType(detectWalletType(rawProvider));
+      const wt = detectWalletType(rawProvider);
+      setWalletType(wt);
+      DBG('connectWallet — wallet type:', wt);
 
       const accounts = await rawProvider.request({ method: 'eth_requestAccounts' });
+      DBG('connectWallet — accounts:', accounts);
       if (!accounts || accounts.length === 0) throw new Error('No accounts returned from wallet');
 
       await ensureCorrectChain(rawProvider);
@@ -456,19 +413,27 @@ export const VotingProvider = ({ children }) => {
       const ethersP  = new ethers.BrowserProvider(rawProvider);
       providerRef.current = ethersP;
       setUserAddress(address);
+      DBG('connectWallet — address:', address);
 
       if (CONTRACT_ADDRESS) {
+        DBG('connectWallet — CONTRACT_ADDRESS:', CONTRACT_ADDRESS);
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersP);
         contractRef.current = contract;
         await resolveKeyholder(address, contract);
+      } else {
+        ERR('connectWallet — CONTRACT_ADDRESS is not set!');
       }
 
       const chainHex = await rawProvider.request({ method: 'eth_chainId' });
-      setChainId(parseInt(chainHex, 16));
+      const cid = parseInt(chainHex, 16);
+      setChainId(cid);
+      DBG('connectWallet — chainId:', cid);
 
       setLoading(false);
+      DBG('connectWallet — success');
       return address;
     } catch (err) {
+      ERR('connectWallet FAILED:', err.message, err);
       const message = err.code === 4001
         ? 'Connection rejected — please approve in your wallet'
         : (err.message ?? 'Wallet connection failed');
@@ -481,6 +446,7 @@ export const VotingProvider = ({ children }) => {
   // ── disconnectWallet ──────────────────────────────────────────────────────
 
   const disconnectWallet = useCallback(() => {
+    DBG('disconnectWallet');
     setUserAddress(null);
     setIsKeyholder(false);
     setKeyholderIndex(null);
@@ -496,23 +462,39 @@ export const VotingProvider = ({ children }) => {
   // ── initializeProposals ───────────────────────────────────────────────────
 
   const initializeProposals = useCallback(async () => {
+    DBG('initializeProposals — start');
     setLoading(true);
     setError(null);
     try {
       const contract = getReadContract();
-      if (!contract) { setLoading(false); return; }
+      if (!contract) {
+        ERR('initializeProposals — no contract');
+        setLoading(false);
+        return;
+      }
 
-      const count    = Number(await contract.proposalCount());
+      const count = Number(await contract.proposalCount());
+      DBG('initializeProposals — proposalCount:', count);
       if (count === 0) { setProposals([]); setLoading(false); return; }
 
       const provider = providerRef.current;
-      const fetched  = await Promise.allSettled(
+      DBG(`initializeProposals — fetching ${count} proposals...`);
+
+      const fetched = await Promise.allSettled(
         Array.from({ length: count }, (_, i) => decodeProposal(contract, provider, i))
       );
+
+      fetched.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          ERR(`initializeProposals — proposal ${i} FAILED:`, r.reason?.message ?? r.reason);
+        }
+      });
+
       const valid = fetched
         .filter(r => r.status === 'fulfilled' && r.value)
         .map(r => r.value);
 
+      DBG(`initializeProposals — decoded ${valid.length}/${count} proposals successfully`);
       setProposals(valid);
 
       if (userAddress) {
@@ -522,11 +504,14 @@ export const VotingProvider = ({ children }) => {
         const voted = valid
           .filter((_, i) => votedFlags[i].status === 'fulfilled' && votedFlags[i].value)
           .map(p => p.id);
+        DBG('initializeProposals — voted proposal IDs:', voted);
         setUserVotes(voted);
       }
 
       setLoading(false);
+      DBG('initializeProposals — done');
     } catch (err) {
+      ERR('initializeProposals FAILED:', err.message, err);
       setError(err.message);
       setLoading(false);
     }
@@ -535,6 +520,7 @@ export const VotingProvider = ({ children }) => {
   // ── getProposalDetail ─────────────────────────────────────────────────────
 
   const getProposalDetail = useCallback(async (proposalId) => {
+    DBG(`getProposalDetail(${proposalId}) — start`);
     setLoading(true);
     setError(null);
     try {
@@ -543,22 +529,32 @@ export const VotingProvider = ({ children }) => {
       const provider = providerRef.current;
       const detail   = await decodeProposal(contract, provider, Number(proposalId));
 
-      const dkg = await contract.getDKGStatus(proposalId).catch(() => null);
+      const dkg = await contract.getDKGStatus(proposalId).catch((e) => {
+        ERR(`getProposalDetail — getDKGStatus FAILED:`, e.message);
+        return null;
+      });
       if (dkg) {
         detail.dkgAddresses = Array.from(dkg.addresses);
         detail.dkgSubmitted = Array.from(dkg.submitted);
+        DBG(`getProposalDetail(${proposalId}) — DKG:`, detail.dkgAddresses, detail.dkgSubmitted);
       }
 
-      const epk = await contract.getElectionPublicKey(proposalId).catch(() => null);
+      const epk = await contract.getElectionPublicKey(proposalId).catch((e) => {
+        ERR(`getProposalDetail — getElectionPublicKey FAILED:`, e.message);
+        return null;
+      });
       if (epk) {
         detail.electionPublicKey = { x: epk.x.toString(), y: epk.y.toString() };
         detail.dkgSharesIn       = Number(epk.sharesIn);
+        DBG(`getProposalDetail(${proposalId}) — EPK: x=${detail.electionPublicKey.x.slice(0, 10)}…`);
       }
 
       setProposalDetail(detail);
       setLoading(false);
+      DBG(`getProposalDetail(${proposalId}) — done`);
       return detail;
     } catch (err) {
+      ERR(`getProposalDetail(${proposalId}) FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       return null;
@@ -575,24 +571,29 @@ export const VotingProvider = ({ children }) => {
     description, options, votingMode, duration,
     eligibilityThreshold, minVoterThreshold,
   }) => {
+    DBG('createProposal — start', { description, options, votingMode, duration, eligibilityThreshold, minVoterThreshold });
     setLoading(true);
     setError(null);
     try {
       const contract = await getWriteContract();
       const modeEnum = votingMode === 'quadratic' ? 1 : 0;
 
+      DBG('createProposal — sending tx...');
       const tx      = await contract.createProposal(
         description, options, modeEnum, duration, eligibilityThreshold, minVoterThreshold,
       );
+      DBG('createProposal — tx hash:', tx.hash);
       const receipt = await tx.wait();
+      DBG('createProposal — receipt status:', receipt.status, 'logs:', receipt.logs.length);
 
       const createdLog = receipt.logs
         .map(l => { try { return contract.interface.parseLog(l); } catch { return null; } })
         .find(l => l?.name === 'ProposalCreated');
 
-      const newId    = createdLog ? Number(createdLog.args.proposalId) : null;
-      const provider = providerRef.current;
+      const newId = createdLog ? Number(createdLog.args.proposalId) : null;
+      DBG('createProposal — new proposalId:', newId);
 
+      const provider = providerRef.current;
       let newProposal = null;
       if (newId !== null) {
         newProposal = await decodeProposal(contract, provider, newId);
@@ -608,6 +609,7 @@ export const VotingProvider = ({ children }) => {
       setLoading(false);
       return newProposal ?? { id: newId?.toString() };
     } catch (err) {
+      ERR('createProposal FAILED:', err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -617,16 +619,20 @@ export const VotingProvider = ({ children }) => {
   // ── submitPublicKeyShare ──────────────────────────────────────────────────
 
   const submitPublicKeyShare = useCallback(async (proposalId, shareX, shareY) => {
+    DBG(`submitPublicKeyShare(${proposalId}) — shareX: ${shareX?.toString().slice(0,10)}…`);
     setLoading(true);
     setError(null);
     try {
       const contract = await getWriteContract();
       const tx = await contract.submitPublicKeyShare(proposalId, shareX, shareY);
+      DBG(`submitPublicKeyShare — tx hash: ${tx.hash}`);
       await tx.wait();
+      DBG(`submitPublicKeyShare — confirmed, refreshing detail...`);
       await getProposalDetail(proposalId);
       setLoading(false);
       return { success: true };
     } catch (err) {
+      ERR(`submitPublicKeyShare FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -636,33 +642,33 @@ export const VotingProvider = ({ children }) => {
   // ── submitVote ────────────────────────────────────────────────────────────
 
   const submitVote = useCallback(async (proposalId, pA, pB, pC, pubSignals, encVote, nullifier) => {
+    DBG(`submitVote(${proposalId}) — nullifier: ${nullifier}`);
     setLoading(true);
     setError(null);
     try {
       if (usedNullifiers.has(nullifier)) throw new Error('Nullifier already used — vote already cast');
 
       const contract = await getWriteContract();
+      DBG(`submitVote — sending castVote tx...`);
       const tx = await contract.castVote(proposalId, pA, pB, pC, pubSignals, encVote);
+      DBG(`submitVote — tx hash: ${tx.hash}`);
       await tx.wait();
+      DBG(`submitVote — confirmed`);
 
       const pid = proposalId.toString();
       setUsedNullifiers(prev => new Set([...prev, nullifier]));
       setUserVotes(prev => prev.includes(pid) ? prev : [...prev, pid]);
 
-      // Refresh from chain after vote to keep proposals[] consistent.
-      // safeGetProposal is used inside decodeProposal so this is safe.
       try {
-        const refreshed = await decodeProposal(
-          getReadContract(),
-          providerRef.current,
-          Number(pid)
-        );
+        DBG(`submitVote — refreshing proposal ${pid}...`);
+        const refreshed = await decodeProposal(getReadContract(), providerRef.current, Number(pid));
         if (refreshed) {
           setProposals(prev => prev.map(p => p.id === pid ? refreshed : p));
           setProposalDetail(prev => (prev?.id === pid) ? { ...prev, ...refreshed } : prev);
+          DBG(`submitVote — proposal ${pid} refreshed, new voteCount: ${refreshed.voteCount}`);
         }
       } catch (refreshErr) {
-        console.warn('[submitVote] post-vote refresh failed, using optimistic update:', refreshErr.message);
+        ERR(`submitVote — refresh FAILED, using optimistic update:`, refreshErr.message);
         setProposals(prev => prev.map(p =>
           p.id === pid
             ? { ...p, voteCount: p.voteCount + 1, totalParticipation: p.totalParticipation + 1 }
@@ -673,6 +679,7 @@ export const VotingProvider = ({ children }) => {
       setLoading(false);
       return { success: true, nullifier };
     } catch (err) {
+      ERR(`submitVote FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -682,16 +689,20 @@ export const VotingProvider = ({ children }) => {
   // ── closeVoting ───────────────────────────────────────────────────────────
 
   const closeVoting = useCallback(async (proposalId) => {
+    DBG(`closeVoting(${proposalId})`);
     setLoading(true);
     setError(null);
     try {
       const contract = await getWriteContract();
       const tx = await contract.closeVoting(proposalId);
+      DBG(`closeVoting — tx hash: ${tx.hash}`);
       await tx.wait();
+      DBG(`closeVoting — confirmed, refreshing all proposals...`);
       await initializeProposals();
       setLoading(false);
       return { success: true };
     } catch (err) {
+      ERR(`closeVoting FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -701,16 +712,20 @@ export const VotingProvider = ({ children }) => {
   // ── submitPartialDecryption ───────────────────────────────────────────────
 
   const submitPartialDecryption = useCallback(async (proposalId, partials) => {
+    DBG(`submitPartialDecryption(${proposalId})`);
     setLoading(true);
     setError(null);
     try {
       const contract = await getWriteContract();
       const tx = await contract.submitPartialDecrypt(proposalId, partials);
+      DBG(`submitPartialDecryption — tx hash: ${tx.hash}`);
       await tx.wait();
+      DBG(`submitPartialDecryption — confirmed`);
       await getProposalDetail(proposalId);
       setLoading(false);
       return { success: true };
     } catch (err) {
+      ERR(`submitPartialDecryption FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -720,6 +735,7 @@ export const VotingProvider = ({ children }) => {
   // ── submitFinalTally ──────────────────────────────────────────────────────
 
   const submitFinalTally = useCallback(async (proposalId, tallies) => {
+    DBG(`submitFinalTally(${proposalId}) — tallies: ${JSON.stringify(tallies)}`);
     setLoading(true);
     setError(null);
     try {
@@ -728,11 +744,14 @@ export const VotingProvider = ({ children }) => {
       }
       const contract = await getWriteContract();
       const tx = await contract.submitFinalTally(proposalId, tallies.map(BigInt));
+      DBG(`submitFinalTally — tx hash: ${tx.hash}`);
       await tx.wait();
+      DBG(`submitFinalTally — confirmed`);
       await initializeProposals();
       setLoading(false);
       return { success: true };
     } catch (err) {
+      ERR(`submitFinalTally FAILED:`, err.message, err);
       setError(err.message);
       setLoading(false);
       throw err;
@@ -742,28 +761,38 @@ export const VotingProvider = ({ children }) => {
   // ── checkEligibility ─────────────────────────────────────────────────────
 
   const checkEligibility = useCallback(async (proposalId) => {
+    DBG(`checkEligibility(${proposalId}) for ${userAddress}`);
     if (!userAddress) return false;
     try {
+      const contract = getReadContract();
+      if (!contract) return false;
+      const v = await contract.getProposalView(proposalId);
+      DBG(`checkEligibility — threshold: ${v.eligibilityThreshold?.toString()}`);
+      if (Number(v.eligibilityThreshold) === 0) return true;
       const provider = providerRef.current;
       if (!provider) return false;
-      const raw = await safeGetProposal(provider, proposalId);
-      if (Number(raw.eligibilityThreshold) === 0) return true;
       const balance = await provider.getBalance(userAddress);
-      return balance >= raw.eligibilityThreshold;
-    } catch {
+      DBG(`checkEligibility — balance: ${balance}, threshold: ${v.eligibilityThreshold}`);
+      return balance >= v.eligibilityThreshold;
+    } catch (err) {
+      ERR('checkEligibility FAILED:', err.message);
       return false;
     }
-  }, [userAddress]);
+  }, [userAddress, getReadContract]);
 
   // ── getDKGStatus ──────────────────────────────────────────────────────────
 
   const getDKGStatus = useCallback(async (proposalId) => {
+    DBG(`getDKGStatus(${proposalId})`);
     try {
       const contract = getReadContract();
       if (!contract) return null;
       const res = await contract.getDKGStatus(proposalId);
-      return { addresses: Array.from(res.addresses), submitted: Array.from(res.submitted) };
-    } catch {
+      const result = { addresses: Array.from(res.addresses), submitted: Array.from(res.submitted) };
+      DBG(`getDKGStatus — result:`, result);
+      return result;
+    } catch (err) {
+      ERR('getDKGStatus FAILED:', err.message);
       return null;
     }
   }, [getReadContract]);
@@ -771,12 +800,14 @@ export const VotingProvider = ({ children }) => {
   // ── getEncryptedTally ─────────────────────────────────────────────────────
 
   const getEncryptedTally = useCallback(async (proposalId, optionIndex) => {
+    DBG(`getEncryptedTally(${proposalId}, ${optionIndex})`);
     try {
       const contract = getReadContract();
       if (!contract) return null;
       const res = await contract.getEncryptedTally(proposalId, optionIndex);
       return { c1: res.c1, c2: res.c2 };
-    } catch {
+    } catch (err) {
+      ERR('getEncryptedTally FAILED:', err.message);
       return null;
     }
   }, [getReadContract]);
@@ -798,35 +829,29 @@ export const VotingProvider = ({ children }) => {
     walletType,
     chainId,
     isOnCorrectChain,
-
     userVotes,
     userProposals,
     proposals,
     proposalDetail,
     loading,
     error,
-
     connectWallet,
     disconnectWallet,
-
     initializeProposals,
     getProposalDetail,
     getActiveProposals,
     getArchivedProposals,
     getEndedProposals,
-
     createProposal,
     submitPublicKeyShare,
     submitVote,
     closeVoting,
     submitPartialDecryption,
     submitFinalTally,
-
     checkEligibility,
     getDKGStatus,
     getEncryptedTally,
     getNullifierStatus,
-
     usedNullifiers,
     CONTRACT_ADDRESS,
   };
