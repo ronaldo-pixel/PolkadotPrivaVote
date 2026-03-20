@@ -22,7 +22,7 @@ contract PrivateVoting {
     uint256 private constant MIN_VOTERS     = 1;
     uint256 private constant MIN_OPTIONS    = 2;
     uint256 private constant MAX_OPTIONS    = 10;
-    uint256 private constant TIMEOUT_BLOCKS = 50000;
+    
 
     // BabyJubJub — Base8 point used in vote.circom (not EIP-2494 generator)
     uint256 private constant BABYJUB_MODULUS =
