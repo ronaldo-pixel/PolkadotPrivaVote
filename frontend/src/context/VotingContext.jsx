@@ -23,7 +23,6 @@ const CONTRACT_ABI = [
     'uint256 eligibilityThreshold,' +
     'uint256 minVoterThreshold,' +
     'uint8 status,' +
-    'address tokenContract,' +
     'uint256 voteCount,' +
     'uint256 partialCount,' +
     'uint256 winningOption,' +
@@ -36,7 +35,7 @@ const CONTRACT_ABI = [
   'function getResult(uint256 proposalId) external view returns (uint256[10] tally, uint256 winningOption, uint8 status)',
   'function getEncryptedTally(uint256 proposalId, uint256 optionIndex) external view returns (uint256[2] c1, uint256[2] c2)',
 
-  'function createProposal(string description, string[] options, uint8 votingMode, uint256 duration, uint256 eligibilityThreshold, uint256 minVoterThreshold, address tokenContract) external returns (uint256 proposalId)',
+  'function createProposal(string description, string[] options, uint8 votingMode, uint256 duration, uint256 eligibilityThreshold, uint256 minVoterThreshold) external returns (uint256 proposalId)',
   'function submitPublicKeyShare(uint256 proposalId, uint256 shareX, uint256 shareY) external',
   'function castVote(uint256 proposalId, uint256[2] pA, uint256[2][2] pB, uint256[2] pC, uint256[44] pubSignals, uint256[2][2][10] encVote) external',
   'function closeVoting(uint256 proposalId) external',
@@ -215,7 +214,6 @@ async function decodeProposal(contract, provider, proposalId) {
     eligibilityThreshold: Number(raw.eligibilityThreshold),
     minVoterThreshold:    Number(raw.minVoterThreshold),
     status:               STATUS_MAP[Number(raw.status)] ?? 'PENDING_DKG',
-    tokenContract:        raw.tokenContract,
     voteCount:            Number(raw.voteCount),
     totalParticipation:   Number(raw.voteCount),
     partialCount:         Number(raw.partialCount),
@@ -525,7 +523,7 @@ export const VotingProvider = ({ children }) => {
 
   const createProposal = useCallback(async ({
     description, options, votingMode, duration,
-    eligibilityThreshold, minVoterThreshold, tokenContract,
+    eligibilityThreshold, minVoterThreshold,
   }) => {
     setLoading(true);
     setError(null);
@@ -534,7 +532,7 @@ export const VotingProvider = ({ children }) => {
       const modeEnum = votingMode === 'quadratic' ? 1 : 0;
       const tx       = await contract.createProposal(
         description, options, modeEnum, duration,
-        eligibilityThreshold, minVoterThreshold, tokenContract
+        eligibilityThreshold, minVoterThreshold,
       );
       const receipt  = await tx.wait();
 
@@ -679,13 +677,10 @@ export const VotingProvider = ({ children }) => {
       const contract = getReadContract();
       if (!contract) return false;
       const raw = await contract.proposals(proposalId);
+      console.log("Balance:", ethers.formatEther(balance));
       if (Number(raw.eligibilityThreshold) === 0) return true;
-      const token = new ethers.Contract(
-        raw.tokenContract,
-        ['function balanceOf(address) view returns (uint256)'],
-        providerRef.current
-      );
-      const balance = await token.balanceOf(userAddress);
+      const balance = await providerRef.current.getBalance(userAddress);
+      console.log("Balance:", ethers.formatEther(balance));
       return balance >= raw.eligibilityThreshold;
     } catch {
       return false;

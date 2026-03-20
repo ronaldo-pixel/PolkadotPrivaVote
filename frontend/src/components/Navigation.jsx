@@ -57,7 +57,7 @@ const Navigation = () => {
 
   const menuItemsSx = {
     fontFamily: monoFont,
-    fontSize: '0.68rem',
+    fontSize: '0.90rem',
     color: '#64748b',
     letterSpacing: '0.08em',
     py: 1.25,
@@ -92,11 +92,11 @@ const Navigation = () => {
             cursor: 'pointer', userSelect: 'none', flexShrink: 0,
           }}
         >
-          <Typography sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#334155', letterSpacing: '0.08em' }}>
-            &gt;
+          <Typography sx={{ fontFamily: monoFont, fontSize: '0.90rem', color: '#00f5d4', letterSpacing: '0.08em' }}>
+            {'>'}
           </Typography>
           <Typography sx={{
-            fontFamily: monoFont, fontWeight: 400, fontSize: '0.85rem',
+            fontFamily: monoFont, fontWeight: 400, fontSize: '0.90rem',
             color: '#00f5d4', letterSpacing: '0.1em', textTransform: 'uppercase',
             transition: 'text-shadow 0.2s',
             '&:hover': { textShadow: '0 0 10px rgba(0,245,212,0.7)' },
@@ -120,9 +120,9 @@ const Navigation = () => {
                 disableRipple
                 sx={{
                   fontFamily: monoFont,
-                  fontSize: '0.62rem',
+                  fontSize: '0.90rem',
                   fontWeight: 400,
-                  textTransform: 'uppercase',
+                  textTransform: 'lowercase',
                   letterSpacing: '0.12em',
                   color: active ? '#00f5d4' : '#64748b',
                   background: 'transparent',
@@ -139,7 +139,7 @@ const Navigation = () => {
                   '&:last-child': { borderRight: 'none' },
                 }}
               >
-                {active ? `[${label}]` : label}
+                {active ? `>${label}` : label}
               </Button>
             );
           })}
@@ -149,7 +149,7 @@ const Navigation = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
           {isKeyholder && userAddress && (
             <Typography sx={{
-              fontFamily: monoFont, fontSize: '0.58rem', color: '#39ff14',
+              fontFamily: monoFont, fontSize: '0.90rem', color: '#39ff14',
               letterSpacing: '0.14em', border: '1px solid rgba(57,255,20,0.35)',
               borderRadius: '2px', px: 0.75, py: 0.25,
               animation: 'glowPulse 2s ease-in-out infinite',
