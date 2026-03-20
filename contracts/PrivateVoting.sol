@@ -19,7 +19,7 @@ contract PrivateVoting {
     // =========================================================================
 
     uint256 private constant NUM_KEYHOLDERS = 3;
-    uint256 private constant MIN_VOTERS     = 10;
+    uint256 private constant MIN_VOTERS     = 1;
     uint256 private constant MIN_OPTIONS    = 2;
     uint256 private constant MAX_OPTIONS    = 10;
     uint256 private constant TIMEOUT_BLOCKS = 50000;
@@ -467,7 +467,9 @@ contract PrivateVoting {
 
         // Validate each partial decryption point is on the curve
         for (uint256 i = 0; i < MAX_OPTIONS; i++) {
-            if (!_isOnCurve(partials[i][0], partials[i][1])) revert InvalidPoint();
+            bool isIdentity = (partials[i][0] == 0 && partials[i][1] == 1);
+            if (!isIdentity && !_isOnCurve(partials[i][0], partials[i][1]))
+                revert InvalidPoint();
             p.partialDecryptions[idx][i][0] = partials[i][0];
             p.partialDecryptions[idx][i][1] = partials[i][1];
         }
@@ -589,7 +591,6 @@ contract PrivateVoting {
         external view proposalExists(proposalId)
         returns (uint256[2] memory c1, uint256[2] memory c2)
     {
-        require(optionIndex < proposals[proposalId].options.length, "invalid option");
         ElGamalCiphertext storage ct = proposals[proposalId].encryptedTally[optionIndex];
         c1 = ct.c1;
         c2 = ct.c2;
