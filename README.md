@@ -107,7 +107,7 @@ mv build/combined.json build/Verifier.json
 
 Create a `.env` file:
 ```env
-PASEO_RPC_URL=https://testnet-passet-hub-eth-rpc.polkadot.io
+PASEO_RPC_URL=https://eth-rpc-testnet.polkadot.io/
 PASEO_PK=0x_YOUR_DEPLOYER_PRIVATE_KEY
 
 KEYHOLDER_0_PRIV=0x_KEYHOLDER_0_PRIVATE_KEY
@@ -170,9 +170,9 @@ The end-to-end test covers:
 |-----------|-------|
 | Network | Passet Hub Testnet |
 | Chain ID | 420420422 |
-| RPC | https://testnet-passet-hub-eth-rpc.polkadot.io |
+| RPC | https://eth-rpc-testnet.polkadot.io/ |
 | Explorer | https://blockscout-passet-hub.parity-testnet.parity.io |
-| Faucet | https://faucet.polkadot.io/?parachain=1111 |
+| Faucet | https://faucet.polkadot.io/ |
 
 ---
 
