@@ -141,7 +141,7 @@ const ProposalCreate = () => {
       if (options.some(o => !o.trim())) e.options = 'all options must be filled in';
     }
     if (step === 2) {
-      if (!minVoterThreshold || parseInt(minVoterThreshold) < 10) e.minVoterThreshold = 'minimum 10 votes required (contract enforced)';
+      if (!minVoterThreshold || parseInt(minVoterThreshold) < 3) e.minVoterThreshold = 'minimum 3 votes required (contract enforced)';
       if (eligibilityThreshold === '' || parseInt(eligibilityThreshold) < 0) e.eligibilityThreshold = 'enter a valid token balance (0 = no minimum)';
     }
     return e;
@@ -422,14 +422,14 @@ const ProposalCreate = () => {
               <TerminalField label="min_voter_threshold" error={errors.minVoterThreshold}>
                 <Box component="input" type="number" value={minVoterThreshold}
                   onChange={e => setMinVoterThreshold(e.target.value)}
-                  placeholder="minimum votes for a valid result  (contract minimum: 10)..." sx={inputSx} />
+                  placeholder="minimum votes for a valid result  (contract minimum: 3)..." sx={inputSx} />
               </TerminalField>
               <Box sx={{ mt: '-1rem', mb: '1.5rem', pl: '0.2rem' }}>
                 <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#00f5d4', letterSpacing: '0.04em', lineHeight: 1.7 }}>
                   &gt; if participation falls below this threshold the proposal is cancelled
                   {minVoterThreshold && (
-                    <Box component="span" sx={{ display: 'block', color: parseInt(minVoterThreshold) >= 10 ? '#00f5d4' : '#ff3c3c', mt: '2px' }}>
-                      {'>'} quorum set to {minVoterThreshold} votes{parseInt(minVoterThreshold) < 10 ? ' — below minimum of 10' : ''}
+                    <Box component="span" sx={{ display: 'block', color: parseInt(minVoterThreshold) >= 3 ? '#00f5d4' : '#ff3c3c', mt: '2px' }}>
+                      {'>'} quorum set to {minVoterThreshold} votes{parseInt(minVoterThreshold) < 3 ? ' — below minimum of 3' : ''}
                     </Box>
                   )}
                 </Typography>
