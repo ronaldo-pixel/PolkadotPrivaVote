@@ -43,58 +43,69 @@ const ScanBar = () => (
   </Box>
 );
 
-// BigInt-safe replacer for JSON.stringify debug logs
-const bigintReplacer = (_, v) => typeof v === 'bigint' ? v.toString() + 'n' : v;
+// ── BabyJubJub identity point ─────────────────────────────────────────────────
+// The additive identity on BabyJubJub is (0, 1) — NOT (0, 0).
+// (0, 0) fails _isOnCurve() → InvalidPoint() revert.
+// (0, 1) satisfies: a*x² + y² = 1 + d*x²*y²  →  0 + 1 = 1 + 0  ✓
+//
+// The contract initialises the encrypted tally to identity (0,1).
+// Adding identity to identity is still identity, so submitting all-identity
+// encVote is a valid no-op vote that passes curve validation.
+// pubSignals[4..43] must match encVote coords exactly:
+//   base = 4 + i*4
+//   pubSignals[base]   = encVote[i][0][0]  (c1.x = 0)
+//   pubSignals[base+1] = encVote[i][0][1]  (c1.y = 1)
+//   pubSignals[base+2] = encVote[i][1][0]  (c2.x = 0)
+//   pubSignals[base+3] = encVote[i][1][1]  (c2.y = 1)
 
-// ── Build pubSignals for castVote ─────────────────────────────────────────────
-//
-// The contract checks these specific slots:
-//   pubSignals[0] = claimedBalance   → must be <= msg.sender.balance (use 0 = no claim)
-//   pubSignals[1] = votingMode       → must match proposal.votingMode (0=NORMAL, 1=QUADRATIC)
-//   pubSignals[2] = EPK x            → must match stored electionPublicKey[0]
-//   pubSignals[3] = EPK y            → must match stored electionPublicKey[1]
-//   pubSignals[4..43] = encVote coords → must match encVote array (all 0 = OK with identity points)
-//
-// Passing wrong EPK or wrong votingMode causes PublicInputMismatch revert.
+const IDENTITY = [0n, 1n];  // BabyJubJub identity point (x=0, y=1)
+
+const DUMMY_PA  = [0n, 0n];                    // proof point — not verified (verifier=address(1))
+const DUMMY_PB  = [[0n, 0n], [0n, 0n]];
+const DUMMY_PC  = [0n, 0n];
+
+// uint256[2][2][10] — 10 options, each with c1=identity and c2=identity
+const DUMMY_ENC_VOTE = Array.from({ length: 10 }, () => [
+  [0n, 1n],  // c1: identity point (x=0, y=1)
+  [0n, 1n],  // c2: identity point (x=0, y=1)
+]);
+
+// ── Build pubSignals ──────────────────────────────────────────────────────────
+// Contract checks:
+//   [0]  claimedBalance  ≤ msg.sender.balance  → use 0 (always passes)
+//   [1]  votingMode      == proposal.votingMode → must match
+//   [2]  EPK.x           == electionPublicKey[0] → must match
+//   [3]  EPK.y           == electionPublicKey[1] → must match
+//   [4..43] encVote coords                       → must match DUMMY_ENC_VOTE
 
 function buildPubSignals(proposal) {
-  const signals = Array(44).fill(0n);
-
-  // [0] claimedBalance — 0 means "I claim 0 tokens" which is always <= actual balance
-  signals[0] = 0n;
-
-  // [1] votingMode — must match exactly
-  signals[1] = proposal.votingMode === 'quadratic' ? 1n : 0n;
-
-  // [2,3] election public key — must match what's stored on-chain
-  const epk = proposal.electionPublicKey;
-  if (!epk?.x || !epk?.y) {
+  if (!proposal.electionPublicKey?.x || !proposal.electionPublicKey?.y) {
     throw new Error('Election public key not available — DKG may not be complete');
   }
-  signals[2] = BigInt(epk.x);
-  signals[3] = BigInt(epk.y);
 
-  // [4..43] encVote coordinates — all zeros matches DUMMY_ENC_VOTE (identity points)
-  // slots 4+i*4 = encVote[i][0][0] (c1.x)
-  // slots 5+i*4 = encVote[i][0][1] (c1.y)
-  // slots 6+i*4 = encVote[i][1][0] (c2.x)
-  // slots 7+i*4 = encVote[i][1][1] (c2.y)
-  // All remain 0n to match DUMMY_ENC_VOTE
+  const signals = Array(44).fill(0n);
+
+  signals[0] = 0n;  // claimedBalance
+  signals[1] = proposal.votingMode === 'quadratic' ? 1n : 0n;
+  signals[2] = BigInt(proposal.electionPublicKey.x);
+  signals[3] = BigInt(proposal.electionPublicKey.y);
+
+  // Slots 4..43 must match DUMMY_ENC_VOTE exactly
+  // encVote[i] = [[c1x, c1y], [c2x, c2y]]
+  // pubSignals[4+i*4+0] = c1x = 0
+  // pubSignals[4+i*4+1] = c1y = 1
+  // pubSignals[4+i*4+2] = c2x = 0
+  // pubSignals[4+i*4+3] = c2y = 1
+  for (let i = 0; i < 10; i++) {
+    const base = 4 + i * 4;
+    signals[base + 0] = 0n;  // c1.x
+    signals[base + 1] = 1n;  // c1.y  ← must be 1 to match identity point
+    signals[base + 2] = 0n;  // c2.x
+    signals[base + 3] = 1n;  // c2.y  ← must be 1 to match identity point
+  }
 
   return signals;
 }
-
-// ── Dummy proof + encVote (identity points) ───────────────────────────────────
-// verifierContract == address(1) on this deployment so proof is not verified.
-// encVote must be uint256[2][2][10] with correct shape or ethers encodes wrong calldata.
-const DUMMY_POINT    = [0n, 0n];
-const DUMMY_PA       = DUMMY_POINT;
-const DUMMY_PB       = [DUMMY_POINT, DUMMY_POINT];
-const DUMMY_PC       = DUMMY_POINT;
-const DUMMY_ENC_VOTE = Array.from({ length: 10 }, () => [
-  [0n, 0n], // c1: [x, y]
-  [0n, 0n], // c2: [x, y]
-]);
 
 const VoteForm = ({ proposal, onVoteSuccess }) => {
   const { submitVote, userAddress, checkEligibility } = useVoting();
@@ -136,23 +147,22 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
       setCompletedSteps(p => [...p, 0]);
       setStepIndex(1);
 
-      // Step 1 — encrypt vote (placeholder until circomlibjs integrated)
+      // Step 1 — encrypt vote (placeholder)
       setCompletedSteps(p => [...p, 1]);
       setStepIndex(2);
 
-      // Step 2 — generate ZK proof (placeholder until snarkjs integrated)
+      // Step 2 — ZK proof (placeholder)
       setCompletedSteps(p => [...p, 2]);
       setStepIndex(3);
 
-      // Step 3 — build pubSignals with real EPK + votingMode, then submit
+      // Step 3 — build correct pubSignals and submit
       const optionIndex = proposal.options.indexOf(selectedOption);
-      console.log('[VoteForm] submitting vote for option', optionIndex, selectedOption);
-      console.log('[VoteForm] proposal.electionPublicKey:', proposal.electionPublicKey);
-      console.log('[VoteForm] proposal.votingMode:', proposal.votingMode);
+      const pubSignals  = buildPubSignals(proposal);
 
-      // Build pubSignals — must contain real EPK and votingMode or contract reverts
-      const pubSignals = buildPubSignals(proposal);
+      console.log('[VoteForm] option:', optionIndex, selectedOption);
       console.log('[VoteForm] pubSignals[0..3]:', pubSignals.slice(0, 4).map(String));
+      console.log('[VoteForm] pubSignals[4..7] (first option coords):', pubSignals.slice(4, 8).map(String));
+      console.log('[VoteForm] DUMMY_ENC_VOTE[0]:', JSON.stringify(DUMMY_ENC_VOTE[0], (_, v) => typeof v === 'bigint' ? v.toString() : v));
 
       await submitVote(
         proposal.id,
@@ -165,7 +175,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
       );
 
       setCompletedSteps(p => [...p, 3]);
-
       setConfirmationData({
         nullifier,
         option:     selectedOption,
@@ -175,7 +184,6 @@ const VoteForm = ({ proposal, onVoteSuccess }) => {
         votingMode: proposal.votingMode,
         timestamp:  new Date().toLocaleString('en-GB'),
       });
-
       setShowConfirmation(true);
       setSelectedOption('');
       if (onVoteSuccess) setTimeout(onVoteSuccess, 2000);

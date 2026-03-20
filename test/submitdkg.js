@@ -2,30 +2,39 @@
 
 require("dotenv").config();
 const { ethers } = require("ethers");
-const { buildBabyjub } = require("circomlibjs");
 
 // ── CONFIG ─────────────────────────────────────────
 const RPC_URL          = process.env.PASEO_RPC_URL;
 const CONTRACT_ADDRESS = process.env.PRIVATE_VOTING_ADDRESS;
+const PROPOSAL_ID = 4;
 
-// keyholders (3 wallets)
+// keyholders
 const KH_KEYS = [
   process.env.KEYHOLDER_0_PRIV,
   process.env.KEYHOLDER_1_PRIV,
   process.env.KEYHOLDER_2_PRIV,
 ];
 
-// ── ABI (only needed function) ─────────────────────
+// ── ABI ────────────────────────────────────────────
 const ABI = [
-  "function submitPublicKeyShare(uint256 proposalId, uint256 shareX, uint256 shareY) external"
+  "function submitPublicKeyShare(uint256 proposalId, uint256 shareX, uint256 shareY) external",
+  "function getProposalView(uint256 proposalId) view returns (uint256,address,uint8,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint256,uint256,uint256,uint256,uint256)",
+  "function keyholders(uint256) view returns (address)",
+  "function getPublicKeyShare(uint256,uint256) view returns (uint256,uint256,bool)"
 ];
 
-// ── BabyJub math (same as your test) ───────────────
+// ── BabyJub constants (MATCH CONTRACT) ─────────────
 const FIELD_MODULUS = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 const BABYJUB_A = 168700n;
 const BABYJUB_D = 168696n;
 const SUBGROUP_ORDER = BigInt("2736030358979909402780800718157159386076813972158567259200215660948447373041");
 
+const BASE8 = {
+  x: 5299619240641551281634865583518297030282874472190772894086521144482721001553n,
+  y: 16950150798460657717958625567821834550301663161624707787222815936182638968203n
+};
+
+// ── Math ───────────────────────────────────────────
 function modpow(base, exp, mod) {
   let result = 1n;
   base %= mod;
@@ -36,6 +45,7 @@ function modpow(base, exp, mod) {
   }
   return result;
 }
+
 function modInverse(a, m) {
   return modpow(a, m - 2n, m);
 }
@@ -77,20 +87,22 @@ function scalarMul(pt, scalar) {
 // ── MAIN ───────────────────────────────────────────
 async function main() {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
-
-  // load keyholders
   const wallets = KH_KEYS.map(pk => new ethers.Wallet(pk, provider));
 
-  console.log("Submitting DKG for proposalId = 0\n");
+  console.log("=== DKG Submission ===\n");
 
-  // BabyJub base point
-  const babyJub = await buildBabyjub();
-  const base8 = {
-    x: babyJub.F.toObject(babyJub.Base8[0]),
-    y: babyJub.F.toObject(babyJub.Base8[1]),
-  };
+  const contractRead = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
 
-  // simple private shares (must match your backend logic)
+  // ── Check proposal ───────────────────────────────
+  const p = await contractRead.getProposalView(PROPOSAL_ID);
+
+  console.log("Status:", Number(p[9]));
+  console.log("ShareCount:", Number(p[13]));
+
+  if (Number(p[9]) !== 0) {
+    throw new Error("❌ Proposal is NOT in PENDING_DKG");
+  }
+
   const privateShares = [1n, 2n, 3n];
 
   for (let i = 0; i < 3; i++) {
@@ -98,28 +110,43 @@ async function main() {
       const wallet = wallets[i];
       const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, wallet);
 
-      // compute public share = s * G
-      const pub = scalarMul(base8, privateShares[i]);
+      // ✅ Skip if already submitted
+      const share = await contractRead.getPublicKeyShare(PROPOSAL_ID, i);
+      if (share[2]) {
+        console.log(`KH${i} already submitted ✅`);
+        continue;
+      }
 
-      console.log(`KH${i} submitting...`);
+      const pub = scalarMul(BASE8, privateShares[i]);
+
+      console.log(`\nKH${i} submitting...`);
+
+      const nonce = await wallet.getNonce();
 
       const tx = await contract.submitPublicKeyShare(
-        0, // proposalId
+        PROPOSAL_ID,
         pub.x,
         pub.y,
-        { gasLimit: 1000000n }
+        {
+          gasLimit: 1000000n,
+          nonce: nonce
+        }
       );
 
       console.log(`Tx sent: ${tx.hash}`);
       await tx.wait();
 
       console.log(`✓ KH${i} submitted`);
+
+      // ✅ small delay to avoid RPC duplication issues
+      await new Promise(r => setTimeout(r, 2000));
+
     } catch (err) {
       console.log(`✗ KH${i} failed:`, err.message);
     }
   }
 
-  console.log("\nDone.");
+  console.log("\n✅ Done.");
 }
 
 main().catch(console.error);
