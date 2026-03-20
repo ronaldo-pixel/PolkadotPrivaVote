@@ -1,23 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import {
-  Container,
-  Box,
-  Typography,
-  Grid,
-  CircularProgress,
-} from '@mui/material';
+import { Container, Box, Typography, Grid } from '@mui/material';
 import { useVoting } from '../context/VotingContext';
 import ProposalStatusTimeline from '../components/ProposalStatusTimeline';
 import VoteForm from '../components/VoteForm';
 import { formatUtils } from '../utils/contractUtils';
 
-const monoFont = "JetBrains Mono";
+const monoFont = '"Share Tech Mono", "JetBrains Mono", "Courier New", monospace';
+const bodyFont = '"IBM Plex Mono", "Courier New", monospace';
 
 const STATUS_COLOR = {
   ACTIVE:      '#00f5d4',
   PENDING_DKG: '#ffb800',
-  ENDED:       '#94a3b8',
+  ENDED:       '#ffffff',
   REVEALED:    '#39ff14',
   CANCELLED:   '#ff3c3c',
 };
@@ -25,499 +20,483 @@ const STATUS_COLOR = {
 const dataBox = {
   p: 1.5,
   background: 'rgba(0,0,0,0.3)',
-  border: '1px solid rgba(226,232,240,0.06)',
+  border: '1px solid #1e2a35',
   borderRadius: '2px',
   height: '100%',
 };
 
-const SectionLabel = ({ children }) => (
-  <Typography
-    sx={{
-      fontFamily: monoFont,
-      fontSize: '1rem',
-      color: 'rgba(255, 255, 255, 1)',
-      letterSpacing: '0.12em',
-      textTransform: 'uppercase',
-      mb: 2,
-    }}
-  >
-    {children}
+const BlinkCursor = () => (
+  <Box component="span" sx={{
+    display: 'inline-block', width: '6px', height: '0.8em',
+    background: '#00f5d4', ml: '3px', verticalAlign: 'middle',
+    animation: 'blink 1s step-end infinite',
+    '@keyframes blink': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0 } },
+  }} />
+);
+
+const ScanBar = () => (
+  <Box sx={{
+    width: '120px', height: '2px', background: '#1e2a35',
+    borderRadius: '2px', overflow: 'hidden', position: 'relative', flexShrink: 0,
+  }}>
+    <Box sx={{
+      position: 'absolute', top: 0, bottom: 0, width: '36px', background: '#00f5d4',
+      animation: 'scanProg 1.2s linear infinite',
+      '@keyframes scanProg': { '0%': { left: '-40px' }, '100%': { left: '100%' } },
+    }} />
+  </Box>
+);
+
+const SectionDivider = ({ children }) => (
+  <Typography sx={{
+    fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff',
+    letterSpacing: '0.12em', mb: '1.5rem',
+  }}>
+    {`/* ── ${children} ── */`}
   </Typography>
 );
 
+const makeBar = (pct, winner = false) => {
+  const filled = Math.round((pct / 100) * 20);
+  return {
+    bar:   '█'.repeat(filled) + '░'.repeat(20 - filled),
+    color: winner ? '#39ff14' : '#00f5d4',
+  };
+};
+
 const ProposalDetail = () => {
   const { id } = useParams();
-  const { proposals, initializeProposals, userAddress, userVotes } = useVoting();
-  const [proposal, setProposal] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { proposals, getProposalDetail, userAddress, userVotes, loading } = useVoting();
+  const [proposal,  setProposal]  = useState(null);
+  const [pageLoad,  setPageLoad]  = useState(true);
   const [activeTab, setActiveTab] = useState('results');
 
   useEffect(() => {
-    initializeProposals();
-  }, [initializeProposals]);
+    getProposalDetail(id).then(detail => {
+      setProposal(detail);
+      setPageLoad(false);
+    }).catch(() => setPageLoad(false));
+  }, [id, getProposalDetail]);
 
   useEffect(() => {
-    if (proposals.length > 0) {
-      setProposal(proposals.find((p) => p.id === id) ?? null);
-      setLoading(false);
-    }
+    const found = proposals.find(p => p.id === id);
+    if (found) setProposal(found);
   }, [proposals, id]);
 
-  if (loading || !proposal) {
+  if (pageLoad) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress size={20} sx={{ color: 'rgba(0,245,212,0.4)' }} />
+      <Box sx={{ fontFamily: bodyFont, background: '#080c10', minHeight: '100vh', borderLeft: '2px solid rgba(0,245,212,0.12)' }}>
+        <Box sx={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 2rem' }}>
+          <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
+            {`> /proposals/${id}`}<BlinkCursor />
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 2 }}>
+            <ScanBar />
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.7rem', color: '#00f5d4', letterSpacing: '0.06em' }}>
+              &gt; loading proposal...
+            </Typography>
+          </Box>
+        </Box>
       </Box>
     );
   }
 
-  const accentColor = STATUS_COLOR[proposal.status] ?? '#94a3b8';
-  const hasVoted = userVotes.includes(proposal.id);
+  if (!proposal) {
+    return (
+      <Box sx={{ fontFamily: bodyFont, background: '#080c10', minHeight: '100vh', borderLeft: '2px solid rgba(0,245,212,0.12)' }}>
+        <Box sx={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 2rem' }}>
+          <Box sx={{ borderLeft: '2px solid #ff3c3c', pl: 1.5, py: 0.5 }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ff3c3c', letterSpacing: '0.04em' }}>
+              &gt; proposal {id} not found
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    );
+  }
 
-  // Unicode bar helper (20 chars wide)
-  const makeBar = (pct, winner = false) => {
-    const filled = Math.round((pct / 100) * 20);
-    const color  = winner ? '#39ff14' : '#00f5d4';
-    return { bar: '█'.repeat(filled) + '░'.repeat(20 - filled), color };
-  };
+  const accentColor = STATUS_COLOR[proposal.status] ?? '#ffffff';
+  const hasVoted    = userVotes.includes(proposal.id);
+  const TABS        = ['results', 'details'];
 
-  const TABS = ['results', 'details'];
+  const participationPct = proposal.minVoterThreshold > 0
+    ? Math.min(Math.round((proposal.totalParticipation / proposal.minVoterThreshold) * 100), 100)
+    : 0;
+  const partBar         = '█'.repeat(Math.round(participationPct / 100 * 16)) + '░'.repeat(16 - Math.round(participationPct / 100 * 16));
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <Box
-        sx={{
-          mb: 4,
-          pb: 3,
-          borderBottom: '1px solid rgba(226,232,240,0.06)',
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-          <Typography
-            sx={{
-              fontFamily: monoFont,
-              fontWeight: 700,
-              fontSize: '1.8rem',
-              color: '#00f5d4',
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-            }}
-          >
-            {proposal.id}
+    <Box sx={{ fontFamily: bodyFont, background: '#080c10', minHeight: '100vh', borderLeft: '2px solid rgba(0,245,212,0.12)' }}>
+      <Container maxWidth="lg" sx={{ py: '2.5rem' }}>
+
+        {/* Breadcrumb */}
+        <Box sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
+          {`> /proposals/${proposal.id}`}<BlinkCursor />
+        </Box>
+
+        {/* Header */}
+        <Box sx={{ mb: '0.75rem' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', mb: '0.5rem' }}>
+            <Typography sx={{
+              fontFamily: monoFont, fontWeight: 400, fontSize: '1.5rem',
+              color: '#e2e8f0', letterSpacing: '0.06em', textTransform: 'uppercase',
+            }}>
+              PROPOSAL #{proposal.id}
+            </Typography>
+            <Typography sx={{
+              fontFamily: monoFont, fontSize: '0.68rem', fontWeight: 400,
+              letterSpacing: '0.14em', color: accentColor,
+              border: `1px solid ${accentColor}40`,
+              borderRadius: '2px', px: 1, py: 0.25, lineHeight: 1.6, flexShrink: 0,
+              animation: ['ACTIVE','PENDING_DKG'].includes(proposal.status)
+                ? 'glowPulse 2.5s ease-in-out infinite' : 'none',
+              '@keyframes glowPulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.45 } },
+            }}>
+              [{proposal.status}]
+            </Typography>
+          </Box>
+
+          <Typography sx={{ fontFamily: monoFont, fontSize: '0.68rem', color: '#ffffff', letterSpacing: '0.06em', mb: '0.75rem' }}>
+            $ {formatUtils.formatAddress(proposal.creator)}
           </Typography>
 
-          <Typography
-            sx={{
-              fontFamily: monoFont,
-              fontSize: '1.0rem',
-              fontWeight: 700,
-              letterSpacing: '0.12em',
-              color: accentColor,
-              textShadow: `0 0 8px ${accentColor}80`,
-              border: `1px solid ${accentColor}40`,
-              px: 1,
-              py: 0.25,
-              lineHeight: 1.6,
-              flexShrink: 0,
-              animation:
-                proposal.status === 'ACTIVE' || proposal.status === 'PENDING_DKG'
-                  ? 'statusPulse 2.5s ease-in-out infinite'
-                  : 'none',
-              '@keyframes statusPulse': {
-                '0%, 100%': { opacity: 1 },
-                '50%': { opacity: 0.5 },
-              },
-            }}
-          >
-            [{proposal.status}]
+          <Typography sx={{ fontFamily: bodyFont, fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.7, letterSpacing: '0.03em' }}>
+            {proposal.description}
           </Typography>
         </Box>
 
-        <Typography
-          sx={{
-            fontFamily: monoFont,
-            fontSize: '1.2rem',
-            color: '#00f5d4',
-            lineHeight: 1.65,
-            letterSpacing: '0.02em',
-          }}
-        >
-          {proposal.description}
-        </Typography>
-      </Box>
+        {/* ASCII hr */}
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#1e2a35', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none', my: '1.5rem' }}>
+          {'─'.repeat(120)}
+        </Box>
 
-      {/* ── Status timeline ─────────────────────────────────────────────────── */}
-      <ProposalStatusTimeline proposal={proposal} />
+        {/* Status timeline */}
+        <ProposalStatusTimeline proposal={proposal} />
 
-      {/* ── Stat cards ──────────────────────────────────────────────────────── */}
-      <Grid container spacing={1.5} sx={{ mb: 4 }}>
-        {[
-          {
-            label: 'voting_mode',
-            value: proposal.votingMode,
-            sub: proposal.votingMode === 'quadratic' ? 'vote power = sqrt(tokens)' : '1 token = 1 vote',
-          },
-          {
-            label: 'eligibility_threshold',
-            value: `${proposal.eligibilityThreshold}`,
-            sub: 'minimum tokens required',
-          },
-          {
-            label: 'min_voter_threshold',
-            value: `${proposal.minVoterThreshold}`,
-            sub: 'for proposal validity',
-          },
-          {
-            label: 'current_participation',
-            value: `${proposal.totalParticipation}`,
-            sub: `${Math.round((proposal.totalParticipation / proposal.minVoterThreshold) * 100)}% of required`,
-          },
-        ].map(({ label, value, sub }) => (
-          <Grid item xs={12} sm={6} md={3} key={label}>
-            <Box sx={dataBox}>
-              <Typography
-                sx={{
-                  fontFamily: monoFont,
-                  fontSize: '0.62rem',
-                  color: '#00f5d4',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  mb: 0.75,
-                }}
-              >
-                {label}
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: monoFont,
-                  fontSize: '1rem',
-                  fontWeight: 700,
-                  color: '#e2e8f0',
-                  mb: 0.25,
-                }}
-              >
-                {value}
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: monoFont,
-                  fontSize: '0.65rem',
-                  color: 'rgb(155, 155, 155)',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {sub}
-              </Typography>
-            </Box>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
-      <Box
-        sx={{
-          display: 'flex',
-          borderBottom: '1px solid rgba(226,232,240,0.06)',
-          mb: 3,
-        }}
-      >
-        {TABS.map((tab) => {
-          const active = activeTab === tab;
-          return (
-            <Box
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              sx={{
-                fontFamily: monoFont,
-                fontSize: '1rem',
-                letterSpacing: '0.08em',
-                textTransform: 'lowercase',
-                color: active ? '#00f5d4' : 'rgba(226,232,240,0.3)',
-                borderBottom: active ? '1px solid #00f5d4' : '1px solid transparent',
-                px: 2.5,
-                py: 1.25,
-                cursor: 'pointer',
-                userSelect: 'none',
-                transition: 'all 0.15s',
-                '&:hover': active ? {} : { color: 'rgba(226,232,240,0.55)' },
-              }}
-            >
-              {active ? `> ${tab}` : `  ${tab}`}
-            </Box>
-          );
-        })}
-      </Box>
-
-      {/* ── Results tab ─────────────────────────────────────────────────────── */}
-      {activeTab === 'results' && (
-        <Box
-          sx={{
-            background: '#0d1117',
-            border: '1px solid rgba(226,232,240,0.08)',
-            borderRadius: '2px',
-            p: 3,
-            mb: 4,
-            backgroundImage:
-              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
-          }}
-        >
-          <SectionLabel>Vote Distribution </SectionLabel>
-
-          {proposal.status === 'ENDED' ? (
-            <Box sx={{ borderLeft: '2px solid #94a3b8', pl: 1.5 }}>
-              <Typography
-                sx={{
-                  fontFamily: monoFont,
-                  fontSize: '0.75rem',
-                  color: '#00f5d4',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                &gt; voting closed — awaiting keyholder decryption
-              </Typography>
-            </Box>
-          ) : (
-            <>
-              {proposal.status === 'ACTIVE' && (
-                <Typography
-                  sx={{
-                    fontFamily: monoFont,
-                    fontSize: '1rem',
-                    color: 'rgba(226,232,240,0.2)',
-                    letterSpacing: '0.04em',
-                    mb: 2.5,
-                  }}
-                >
-                  live vote count — encrypted ballots cannot be attributed to voters
+        {/* Stat blocks */}
+        <Grid container spacing={1.5} sx={{ mb: '2rem' }}>
+          {[
+            {
+              label: 'VOTING_MODE',
+              value: proposal.votingMode.toUpperCase(),
+              sub: proposal.votingMode === 'quadratic' ? 'weight = √(tokens)' : '1 token = 1 vote',
+              color: '#00f5d4',
+            },
+            {
+              label: 'BALANCE_MIN_REQ',
+              value: proposal.eligibilityThreshold === 0 ? 'none' : proposal.eligibilityThreshold.toLocaleString(),
+              sub: 'minimum tokens to vote',
+              color: '#e2e8f0',
+            },
+            {
+              label: 'MIN_VOTER_THRESHOLD',
+              value: proposal.minVoterThreshold.toLocaleString(),
+              sub: 'required for validity',
+              color: '#e2e8f0',
+            },
+            {
+              label: 'PARTICIPATION',
+              value: proposal.totalParticipation.toLocaleString(),
+              sub: `${participationPct}% of threshold`,
+              color: participationPct >= 100 ? '#39ff14' : '#00f5d4',
+            },
+          ].map(({ label, value, sub, color }) => (
+            <Grid item xs={6} sm={3} key={label}>
+              <Box sx={dataBox}>
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>
+                  {label}
                 </Typography>
-              )}
+                <Typography sx={{ fontFamily: monoFont, fontSize: '0.95rem', fontWeight: 400, color, mb: '4px', letterSpacing: '0.04em' }}>
+                  {value}
+                </Typography>
+                <Typography sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#ffffff', letterSpacing: '0.03em' }}>
+                  {sub}
+                </Typography>
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
 
-              {proposal.options.map((option, idx) => {
-                const count = proposal.voteWeight[option] ?? 0;
-                const pct =
-                  proposal.totalParticipation > 0
-                    ? (count / proposal.totalParticipation) * 100
-                    : 0;
-                const isWinner =
-                  proposal.status === 'REVEALED' && option === proposal.winner;
-                const { bar, color } = makeBar(pct, isWinner);
+        {/* Participation bar */}
+        <Box sx={{ mb: '2rem' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: '4px' }}>
+            <Typography sx={{ fontFamily: monoFont, fontSize: '0.58rem', color: '#ffffff', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+              PARTICIPATION
+            </Typography>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#ffffff' }}>
+              {proposal.totalParticipation}/{proposal.minVoterThreshold}
+            </Typography>
+          </Box>
+          <Typography sx={{
+            fontFamily: bodyFont, fontSize: '0.75rem', userSelect: 'none',
+            color: participationPct >= 100 ? '#39ff14' : '#00f5d4',
+            letterSpacing: '0.02em',
+            animation: participationPct >= 100 ? 'glowPulse 2s ease-in-out infinite' : 'none',
+          }}>
+            {partBar} {participationPct}%
+          </Typography>
+        </Box>
 
-                return (
-                  <Box key={idx} sx={{ mb: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography
-                        sx={{
-                          fontFamily: monoFont,
-                          fontSize: '1.0rem',
-                          mb: 1,
-                          color: isWinner ? '#39ff14' : 'rgba(255, 255, 255, 1)',
-                          fontWeight: isWinner ? 700 : 400,
-                          textShadow: isWinner ? '0 0 8px rgba(57,255,20,0.4)' : 'none',
-                        }}
-                      >
-                        {option}
-                        {isWinner && (
-                          <Box
-                            component="span"
-                            sx={{
-                              fontFamily: monoFont,
-                              fontSize: '0.65rem',
-                              color: '#39ff14',
-                              ml: 1,
-                              letterSpacing: '0.1em',
-                            }}
-                          >
-                            [WINNER]
-                          </Box>
-                        )}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontFamily: monoFont,
-                          fontSize: '0.72rem',
-                          color: 'rgba(226,232,240,0.35)',
-                        }}
-                      >
-                        {count} / {pct.toFixed(1)}%
+        {/* Tabs */}
+        <Box sx={{ display: 'flex', borderBottom: '1px solid #1e2a35', mb: '1.75rem' }}>
+          {TABS.map(tab => {
+            const active = activeTab === tab;
+            return (
+              <Box
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                sx={{
+                  fontFamily: monoFont, fontSize: '0.62rem', letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: active ? '#00f5d4' : '#ffffff',
+                  borderBottom: active ? '2px solid #00f5d4' : '2px solid transparent',
+                  mb: '-1px', px: '14px', py: '7px',
+                  cursor: 'pointer', userSelect: 'none', transition: 'color 0.15s',
+                  '&:hover': { color: active ? '#00f5d4' : '#e2e8f0' },
+                }}
+              >
+                {active ? `[${tab}]` : tab}
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* Results tab */}
+        {activeTab === 'results' && (
+          <Box sx={{
+            background: '#0d1117', border: '1px solid #1e2a35', borderRadius: '2px', p: 3, mb: '2rem',
+            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}>
+            <SectionDivider>VOTE DISTRIBUTION</SectionDivider>
+
+            {proposal.status === 'ENDED' ? (
+              <Box sx={{ borderLeft: '2px solid #ffffff', pl: 1.5, py: 0.25 }}>
+                <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffffff', letterSpacing: '0.04em' }}>
+                  &gt; voting closed — awaiting keyholder decryption
+                </Typography>
+              </Box>
+            ) : proposal.status === 'PENDING_DKG' ? (
+              <Box sx={{ borderLeft: '2px solid #ffb800', pl: 1.5, py: 0.25 }}>
+                <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffb800', letterSpacing: '0.04em' }}>
+                  &gt; awaiting dkg setup — voting not yet open
+                </Typography>
+              </Box>
+            ) : (
+              <>
+                {proposal.status === 'ACTIVE' && (
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color: '#ffffff', letterSpacing: '0.03em', mb: '1.5rem', lineHeight: 1.65 }}>
+                    &gt; live vote count — ballots encrypted on-chain, cannot be attributed to voters
+                  </Typography>
+                )}
+
+                {proposal.options.map((option, idx) => {
+                  const count     = proposal.voteWeight?.[option] ?? (proposal.finalResult?.[idx] ?? 0);
+                  const pct       = proposal.totalParticipation > 0 ? (count / proposal.totalParticipation) * 100 : 0;
+                  const isWinner  = proposal.status === 'REVEALED' && option === proposal.winner;
+                  const { bar, color } = makeBar(pct, isWinner);
+
+                  return (
+                    <Box key={idx} sx={{ mb: '1.25rem' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: '4px' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <Typography sx={{ fontFamily: monoFont, fontSize: '0.65rem', color: '#ffffff' }}>
+                            [{idx + 1}]
+                          </Typography>
+                          <Typography sx={{
+                            fontFamily: bodyFont, fontSize: '0.82rem',
+                            color: isWinner ? '#39ff14' : '#e2e8f0',
+                            textShadow: isWinner ? '0 0 8px rgba(57,255,20,0.4)' : 'none',
+                            letterSpacing: '0.03em',
+                          }}>
+                            {option}
+                          </Typography>
+                          {isWinner && (
+                            <Typography sx={{
+                              fontFamily: monoFont, fontSize: '0.6rem',
+                              color: '#39ff14', letterSpacing: '0.1em',
+                              border: '1px solid rgba(57,255,20,0.35)', borderRadius: '2px',
+                              px: 0.5, py: 0.1,
+                              animation: 'glowPulse 2s ease-in-out infinite',
+                            }}>
+                              [WINNER]
+                            </Typography>
+                          )}
+                        </Box>
+                        <Typography sx={{ fontFamily: bodyFont, fontSize: '0.65rem', color: '#ffffff', letterSpacing: '0.04em', flexShrink: 0 }}>
+                          {count} · {pct.toFixed(1)}%
+                        </Typography>
+                      </Box>
+                      <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color, userSelect: 'none', letterSpacing: '0.02em' }}>
+                        {bar}
                       </Typography>
                     </Box>
-                    <Typography
-                      sx={{
-                        fontFamily: monoFont,
-                        fontSize: '0.72rem',
-                        color,
-                        userSelect: 'none',
-                        letterSpacing: '0.02em',
-                      }}
-                    >
-                      {bar}
+                  );
+                })}
+
+                {proposal.status === 'REVEALED' && (
+                  <Box sx={{ borderLeft: '2px solid rgba(57,255,20,0.3)', pl: 1.5, mt: '1.5rem', py: 0.25 }}>
+                    <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color: '#39ff14', letterSpacing: '0.04em' }}>
+                      &gt; results verified on-chain — winner: {proposal.winner}
                     </Typography>
                   </Box>
-                );
-              })}
+                )}
+              </>
+            )}
+          </Box>
+        )}
 
-              {proposal.status === 'REVEALED' && (
-                <Box sx={{ borderLeft: '2px solid rgba(57,255,20,0.3)', pl: 1.5, mt: 3 }}>
-                  <Typography
-                    sx={{
-                      fontFamily: monoFont,
-                      fontSize: '0.72rem',
-                      color: '#39ff14',
-                      textShadow: '0 0 8px rgba(57,255,20,0.4)',
-                      letterSpacing: '0.06em',
-                    }}
-                  >
-                    &gt; results verified on-chain — winner: {proposal.winner}
+        {/* Details tab */}
+        {activeTab === 'details' && (
+          <Box sx={{
+            background: '#0d1117', border: '1px solid #1e2a35', borderRadius: '2px', p: 3, mb: '2rem',
+            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}>
+            <SectionDivider>PROPOSAL DETAILS</SectionDivider>
+
+            <Grid container spacing={1.5}>
+              <Grid item xs={6} sm={3}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>CREATED</Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.75rem', color: '#e2e8f0', letterSpacing: '0.04em' }}>
+                    {formatUtils.formatBlockNumber(proposal.createdAtBlock)}
                   </Typography>
                 </Box>
-              )}
-            </>
-          )}
-        </Box>
-      )}
-
-      {/* ── Details tab ─────────────────────────────────────────────────────── */}
-      {activeTab === 'details' && (
-        <Box
-          sx={{
-            background: '#0d1117',
-            border: '1px solid rgba(226,232,240,0.08)',
-            borderRadius: '2px',
-            p: 3,
-            mb: 4,
-            backgroundImage:
-              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
-          }}
-        >
-          <SectionLabel>Proposal Details</SectionLabel>
-
-          <Grid container spacing={1.5}>
-            <Grid item xs={12} sm={6}>
-              <Box sx={dataBox}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgb(255, 255, 255)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>start block</Typography>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: 'rgba(255, 255, 255, 1)' }}>#{proposal.startBlock}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Box sx={dataBox}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(255, 255, 255, 1)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 0.5 }}>end block</Typography>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.85rem', fontWeight: 700, color: '#ff3c3c' }}>#{proposal.endBlock}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12}>
-              <Box sx={{ ...dataBox, height: 'auto' }}>
-                <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: 'rgba(255, 255, 255, 1)', letterSpacing: '0.1em', textTransform: 'uppercase', mb: 1 }}>voting options</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                  {proposal.options.map((option, idx) => (
-                    <Typography
-                      key={idx}
-                      sx={{
-                        fontFamily: monoFont,
-                        fontSize: '0.72rem',
-                        color: 'rgba(255, 255, 255,1)',
-                        border: '1px solid rgba(226,232,240,0.1)',
-                        px: 1,
-                        py: 0.25,
-                        lineHeight: 1.6,
-                      }}
-                    >
-                       {option}
-                    </Typography>
-                  ))}
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>DURATION</Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.75rem', color: '#e2e8f0', letterSpacing: '0.04em' }}>
+                    {formatUtils.formatDuration(proposal.duration)}
+                  </Typography>
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#ffffff', mt: '3px' }}>
+                    {proposal.duration.toLocaleString()} blocks
+                  </Typography>
                 </Box>
-              </Box>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>START BLOCK</Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.75rem', color: '#e2e8f0', letterSpacing: '0.04em' }}>
+                    {proposal.startBlock ? formatUtils.formatBlockNumber(proposal.startBlock) : '—'}
+                  </Typography>
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#ffffff', mt: '3px' }}>
+                    set after dkg
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>END BLOCK</Typography>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.75rem', color: proposal.endBlock ? '#ff3c3c' : '#ffffff', letterSpacing: '0.04em' }}>
+                    {proposal.endBlock ? formatUtils.formatBlockNumber(proposal.endBlock) : '—'}
+                  </Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>CREATOR</Typography>
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color: '#ffffff', letterSpacing: '0.04em', wordBreak: 'break-all' }}>
+                    $ {proposal.creator}
+                  </Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Box sx={dataBox}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.4rem' }}>TOKEN CONTRACT</Typography>
+                  <Typography sx={{ fontFamily: bodyFont, fontSize: '0.72rem', color: '#ffffff', letterSpacing: '0.04em', wordBreak: 'break-all' }}>
+                    $ {proposal.tokenContract ?? '—'}
+                  </Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Box sx={{ ...dataBox, height: 'auto' }}>
+                  <Typography sx={{ fontFamily: monoFont, fontSize: '0.55rem', color: '#ffffff', letterSpacing: '0.15em', textTransform: 'uppercase', mb: '0.75rem' }}>
+                    OPTIONS ({proposal.options.length})
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {proposal.options.map((option, idx) => (
+                      <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Typography sx={{ fontFamily: monoFont, fontSize: '0.62rem', color: '#ffffff', minWidth: 24, flexShrink: 0 }}>
+                          [{idx + 1}]
+                        </Typography>
+                        <Typography sx={{ fontFamily: bodyFont, fontSize: '0.78rem', color: '#ffffff', letterSpacing: '0.03em' }}>
+                          {option}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              </Grid>
             </Grid>
-          </Grid>
-        </Box>
-      )}
+          </Box>
+        )}
 
-      {/* ── Vote form (ACTIVE only) ──────────────────────────────────────────── */}
-      {proposal.status === 'ACTIVE' && userAddress && (
-        <Box
-          sx={{
-            background: '#0d1117',
-            fontSize:'1.0rem',
-            border: '1px solid rgba(226,232,240,0.08)',
+        {/* Vote form — ACTIVE only */}
+        {proposal.status === 'ACTIVE' && userAddress && (
+          <Box sx={{
+            background: '#0d1117', border: '1px solid #1e2a35',
             borderLeft: '3px solid rgba(0,245,212,0.4)',
-            borderRadius: '2px',
-            p: 3,
-            mb: 4,
-            backgroundImage:
-              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
-          }}
-        >
-          <SectionLabel>/* cast vote */</SectionLabel>
+            borderRadius: '2px', p: 3, mb: '2rem',
+            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,245,212,0.012) 3px, rgba(0,245,212,0.012) 4px)',
+          }}>
+            <SectionDivider>CAST VOTE</SectionDivider>
+            {hasVoted ? (
+              <Box sx={{ borderLeft: '2px solid #39ff14', pl: 1.5, py: 0.25 }}>
+                <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#39ff14', letterSpacing: '0.04em' }}>
+                  &gt; vote recorded — encrypted ballot stored on-chain
+                </Typography>
+              </Box>
+            ) : (
+              <VoteForm proposal={proposal} onVoteSuccess={() => getProposalDetail(id)} />
+            )}
+          </Box>
+        )}
 
-          {hasVoted ? (
-            <Box sx={{ borderLeft: '2px solid #39ff14', pl: 1.5 }}>
-              <Typography
-                sx={{
-                  fontFamily: monoFont,
-                  fontSize: '0.75rem',
-                  color: '#39ff14',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                &gt; vote recorded — encrypted ballot stored on-chain
-              </Typography>
-            </Box>
-          ) : (
-            <VoteForm
-              proposal={proposal}
-              onVoteSuccess={() => console.log('Vote submitted successfully')}
-            />
-          )}
-        </Box>
-      )}
+        {/* Status notices */}
+        {proposal.status === 'ACTIVE' && !userAddress && (
+          <Box sx={{ borderLeft: '2px solid rgba(0,245,212,0.3)', pl: 1.5, mb: '2rem', py: 0.25 }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: 'rgba(0,245,212,0.6)', letterSpacing: '0.04em' }}>
+              &gt; connect your wallet to vote on this proposal
+            </Typography>
+          </Box>
+        )}
 
-      {/* ── Status notices ──────────────────────────────────────────────────── */}
-      {proposal.status === 'ENDED' && (
-        <Box sx={{ borderLeft: '2px solid #94a3b8', pl: 1.5, mb: 4 }}>
-          <Typography
-            sx={{
-              fontFamily: monoFont,
-              fontSize: '0.75rem',
-              color: '#94a3b8',
-              letterSpacing: '0.04em',
-            }}
-          >
-            &gt; voting ended — results awaiting keyholder decryption
-          </Typography>
-        </Box>
-      )}
+        {proposal.status === 'PENDING_DKG' && (
+          <Box sx={{ borderLeft: '2px solid #ffb800', pl: 1.5, mb: '2rem', py: 0.25 }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffb800', letterSpacing: '0.04em' }}>
+              &gt; awaiting keyholder dkg setup — voting opens once all 3 keyholders submit public key shares
+            </Typography>
+          </Box>
+        )}
 
-      {proposal.status === 'REVEALED' && (
-        <Box sx={{ borderLeft: '2px solid #39ff14', pl: 1.5, mb: 4 }}>
-          <Typography
-            sx={{
-              fontFamily: monoFont,
-              fontSize: '0.75rem',
-              color: '#39ff14',
-              textShadow: '0 0 8px rgba(57,255,20,0.4)',
-              letterSpacing: '0.04em',
-            }}
-          >
-            &gt; results revealed — winning option highlighted above
-          </Typography>
-        </Box>
-      )}
+        {proposal.status === 'ENDED' && (
+          <Box sx={{ borderLeft: '2px solid #ffffff', pl: 1.5, mb: '2rem', py: 0.25 }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffffff', letterSpacing: '0.04em' }}>
+              &gt; voting ended — results awaiting keyholder partial decryptions ({proposal.partialCount}/3 submitted)
+            </Typography>
+          </Box>
+        )}
 
-      {!userAddress && proposal.status === 'ACTIVE' && (
-        <Box sx={{ borderLeft: '2px solid rgba(0,245,212,0.3)', pl: 1.5, mb: 4 }}>
-          <Typography
-            sx={{
-              fontFamily: monoFont,
-              fontSize: '0.75rem',
-              color: 'rgba(0,245,212,0.6)',
-              letterSpacing: '0.04em',
-            }}
-          >
-            &gt; connect your wallet to vote on this proposal
-          </Typography>
+        {proposal.status === 'CANCELLED' && (
+          <Box sx={{ borderLeft: '2px solid #ff3c3c', pl: 1.5, mb: '2rem', py: 0.25 }}>
+            <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ff3c3c', letterSpacing: '0.04em' }}>
+              &gt; proposal cancelled — participation fell below minimum threshold of {proposal.minVoterThreshold} votes
+            </Typography>
+          </Box>
+        )}
+
+        {/* Footer */}
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.6rem', color: '#1e2a35', overflow: 'hidden', whiteSpace: 'nowrap', userSelect: 'none' }}>
+          {'─'.repeat(120)}
         </Box>
-      )}
-    </Container>
+        <Box sx={{ fontFamily: bodyFont, fontSize: '0.62rem', color: '#ffffff', letterSpacing: '0.07em', mt: '0.5rem' }}>
+          &gt; proposal {proposal.id} · {proposal.status.toLowerCase()} · system nominal
+        </Box>
+
+      </Container>
+    </Box>
   );
 };
 

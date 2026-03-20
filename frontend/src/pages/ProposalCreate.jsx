@@ -160,7 +160,6 @@ const ProposalCreate = () => {
   };
 
   const handleSubmit = async () => {
-    const tokenContract = import.meta.env.VITE_CONTRACT_ADDRESS;
     const allErrors = { ...validateStep(0), ...validateStep(1), ...validateStep(2) };
     if (Object.keys(allErrors).length > 0) { setErrors(allErrors); return; }
     try {
@@ -172,7 +171,6 @@ const ProposalCreate = () => {
         duration: parseInt(duration),
         eligibilityThreshold: parseInt(eligibilityThreshold),
         minVoterThreshold: parseInt(minVoterThreshold),
-        tokenContract
       });
       setCreatedProposal(newProposal);
       setShowConfirmation(true);
@@ -463,8 +461,8 @@ const ProposalCreate = () => {
 
           {activeStep === 3 && (
             <Box>
-              <Typography sx={{ fontFamily: bodyFont, fontSize: '0.75rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
-                {'/* review and confirm */'}
+              <Typography sx={{ fontFamily: bodyFont,textTransform:'capitalize',fontSize: '0.75rem', color: '#ffffff', letterSpacing: '0.12em', mb: '1.75rem' }}>
+                {'review and confirm'}
               </Typography>
 
               <Grid container spacing={1.5}>
@@ -580,9 +578,9 @@ const ProposalCreate = () => {
             }}>
               {loading ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box sx={{ width: '80px', height: '2px', background: '#1e2a35', borderRadius: '2px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
+                  <Box sx={{ width: '80px', height: '2px', color:'#00f5d4',background: '#1e2a35', borderRadius: '2px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
                     <Box sx={{
-                      position: 'absolute', top: 0, bottom: 0, width: '30px', background: '#00f5d4',
+                      position: 'absolute', top: 0, bottom: 0, width: '30px', background: '#00f5d4',color: '#00f5d4',
                       animation: 'scanProgress 1.2s linear infinite',
                       '@keyframes scanProgress': { '0%': { left: '-40px' }, '100%': { left: '100%' } },
                     }} />
