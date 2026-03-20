@@ -194,7 +194,7 @@ async function main() {
             "Best protocol?",
             ["Polkadot", "Ethereum", "Solana"],
             0,    // NORMAL
-            50,   // 60 blocks duration (~6 minutes on Passet Hub)
+            60,   // 60 blocks duration (~6 minutes on Passet Hub)
             0,    // no eligibility threshold
             4,    // minVoterThreshold = 4 (matches our 4 wallets)
             { gasLimit: 1_000_000n }
