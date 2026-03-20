@@ -273,6 +273,7 @@ contract PrivateVoting {
         if (_shareSubmitted[proposalId][idx])
             revert AlreadySubmittedShare(proposalId, msg.sender);
 
+        if (shareX == 0 && shareY == 1) revert InvalidPoint();
         if (!_isOnCurve(shareX, shareY)) revert InvalidPoint();
 
         _shareSubmitted[proposalId][idx]    = true;
@@ -465,10 +466,12 @@ contract PrivateVoting {
         if (_partialSubmitted[proposalId][idx])
             revert AlreadySubmittedPartial(proposalId, msg.sender);
 
+        uint256 optionCount = p.options.length;
+
         // Validate each partial decryption point is on the curve
-        for (uint256 i = 0; i < MAX_OPTIONS; i++) {
-            bool isIdentity = (partials[i][0] == 0 && partials[i][1] == 1);
-            if (!isIdentity && !_isOnCurve(partials[i][0], partials[i][1]))
+        for (uint256 i = 0; i < optionCount; i++) {
+
+            if (!_isOnCurve(partials[i][0], partials[i][1]))
                 revert InvalidPoint();
             p.partialDecryptions[idx][i][0] = partials[i][0];
             p.partialDecryptions[idx][i][1] = partials[i][1];
@@ -676,7 +679,6 @@ contract PrivateVoting {
     // =========================================================================
 
     function _isOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
-        if (x == 0 && y == 1) return false;
         if (x >= BABYJUB_MODULUS || y >= BABYJUB_MODULUS) return false;
 
         uint256 p  = BABYJUB_MODULUS;
