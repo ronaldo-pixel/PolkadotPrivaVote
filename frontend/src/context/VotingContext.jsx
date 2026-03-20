@@ -4,6 +4,10 @@ import { ethers } from 'ethers';
 export const VotingContext = createContext();
 
 // ── ABI ───────────────────────────────────────────────────────────────────────
+// getProposalView() returns ONLY static (fixed-size) fields.
+// getProposalDescription() returns the string in isolation.
+// Both are immune to the PolkaVM BUFFER_OVERRUN bug because they contain
+// no mixed static+dynamic tuple that confuses ethers v6's ABI decoder.
 
 const CONTRACT_ABI = [
   'function proposalCount() external view returns (uint256)',
@@ -11,12 +15,10 @@ const CONTRACT_ABI = [
   'function hasVoted(uint256 proposalId, address voter) external view returns (bool)',
   'function verifierContract() external view returns (address)',
 
-  // Keep full tuple ABI so ethers knows the shape for encoding calldata,
-  // but we NEVER use ethers to decode the return value — see safeGetProposal().
-  'function proposals(uint256) external view returns (' +
+  // Static-only view — no string, no dynamic array. Safe to decode on PolkaVM.
+  'function getProposalView(uint256 proposalId) external view returns (' +
     'uint256 id,' +
     'address creator,' +
-    'string description,' +
     'uint8 votingMode,' +
     'uint256 createdAtBlock,' +
     'uint256 duration,' +
@@ -31,6 +33,9 @@ const CONTRACT_ABI = [
     'uint256 shareCount,' +
     'uint256 partialCount' +
   ')',
+
+  // Isolated string — separate call, no mixed tuple.
+  'function getProposalDescription(uint256 proposalId) external view returns (string)',
 
   'function getElectionPublicKey(uint256 proposalId) external view returns (uint256 x, uint256 y, uint8 status, uint256 sharesIn)',
   'function getPublicKeyShare(uint256 proposalId, uint256 keyholderIndex) external view returns (uint256 x, uint256 y, bool submitted)',
@@ -129,138 +134,36 @@ async function ensureCorrectChain(rawProvider) {
   }
 }
 
-// ── safeGetProposal ───────────────────────────────────────────────────────────
-//
-// WHY THIS EXISTS
-// ───────────────
-// The Solidity compiler's auto-generated getter for a public mapping whose
-// value is a struct emits an ABI-encoded tuple return.  When that struct
-// contains a `string` field (dynamic type), the ABI encoding uses an offset
-// pointer in word 2 instead of inline data.  ethers v6's Result decoder
-// walks the head section and then jumps to the offset to read the string —
-// but on Polkadot Asset Hub (PolkaVM) the returned bytes are laid out
-// slightly differently from what a standard geth node produces, causing
-// ethers to miscalculate the string boundary and throw:
-//
-//   BUFFER_OVERRUN  (padding exceeds data length)
-//
-// The hex in the error message is the ASCII of an address, which confirms
-// that ethers is reading a 20-byte address field as the length prefix of
-// the string, then trying to slice that many bytes and running off the end.
-//
-// FIX
-// ───
-// Skip ethers' decoder entirely.  Issue a raw eth_call, receive the hex
-// return data, and manually extract each 32-byte word by index.  The layout
-// of the auto-generated getter for our struct (after skipping arrays/mappings
-// which the compiler drops from getters) is exactly:
-//
-//   word  0  : id                (uint256)  static
-//   word  1  : creator           (address)  static, right-padded to 32 bytes
-//   word  2  : offset → description          dynamic string pointer
-//   word  3  : votingMode        (uint8)    static
-//   word  4  : createdAtBlock    (uint256)  static
-//   word  5  : duration          (uint256)  static
-//   word  6  : startBlock        (uint256)  static
-//   word  7  : endBlock          (uint256)  static
-//   word  8  : eligibilityThreshold         static
-//   word  9  : minVoterThreshold (uint256)  static
-//   word 10  : status            (uint8)    static
-//   word 11  : voteCount         (uint256)  static
-//   word 12  : winningOption     (uint256)  static
-//   word 13  : endedAtBlock      (uint256)  static
-//   word 14  : shareCount        (uint256)  static
-//   word 15  : partialCount      (uint256)  static
-//   [dynamic tail: string length + utf-8 bytes, padded to 32]
-
-// Interface used only to build the calldata (encoding is fine; decoding is not)
-const PROPOSALS_CALLDATA_IFACE = new ethers.Interface([
-  'function proposals(uint256) external view returns (' +
-    'uint256 id,address creator,string description,uint8 votingMode,' +
-    'uint256 createdAtBlock,uint256 duration,uint256 startBlock,uint256 endBlock,' +
-    'uint256 eligibilityThreshold,uint256 minVoterThreshold,uint8 status,' +
-    'uint256 voteCount,uint256 winningOption,uint256 endedAtBlock,' +
-    'uint256 shareCount,uint256 partialCount)',
-]);
-
-async function safeGetProposal(provider, proposalId) {
-  const calldata = PROPOSALS_CALLDATA_IFACE.encodeFunctionData('proposals', [proposalId]);
-
-  const raw = await provider.call({ to: CONTRACT_ADDRESS, data: calldata });
-
-  if (!raw || raw === '0x') {
-    throw new Error(`proposals(${proposalId}) returned empty data — does the proposal exist?`);
-  }
-
-  const hex = raw.startsWith('0x') ? raw.slice(2) : raw;
-
-  // Each ABI word is 32 bytes = 64 hex chars
-  const WORD = 64;
-  const totalWords = Math.floor(hex.length / WORD);
-
-  if (totalWords < 16) {
-    throw new Error(
-      `proposals(${proposalId}) returned only ${totalWords} words, need at least 16. ` +
-      `Raw: ${raw.slice(0, 130)}…`
-    );
-  }
-
-  // Read a BigInt from word index n
-  const wordBig = (n) => BigInt('0x' + hex.slice(n * WORD, n * WORD + WORD));
-
-  // Address: last 20 bytes of word 1
-  const creatorWord = hex.slice(1 * WORD, 1 * WORD + WORD);
-  const creator = ethers.getAddress('0x' + creatorWord.slice(24)); // 24 hex = 12 bytes padding
-
-  // String: word 2 is a byte-offset from the start of the return data.
-  // Divide by 32 to get the word index of the length prefix.
-  const descByteOffset = Number(wordBig(2));
-  const descLenWordIdx = descByteOffset / 32;
-  const descLen        = Number(wordBig(descLenWordIdx));   // byte length of the string
-  const descDataStart  = (descLenWordIdx + 1) * WORD;       // hex char index
-  const descHex        = hex.slice(descDataStart, descDataStart + descLen * 2);
-  let description = '';
-  try {
-    description = ethers.toUtf8String('0x' + descHex);
-  } catch {
-    description = '';
-  }
-
-  return {
-    id:                   wordBig(0),
-    creator,
-    description,
-    votingMode:           wordBig(3),
-    createdAtBlock:       wordBig(4),
-    duration:             wordBig(5),
-    startBlock:           wordBig(6),
-    endBlock:             wordBig(7),
-    eligibilityThreshold: wordBig(8),
-    minVoterThreshold:    wordBig(9),
-    status:               wordBig(10),
-    voteCount:            wordBig(11),
-    winningOption:        wordBig(12),
-    endedAtBlock:         wordBig(13),
-    shareCount:           wordBig(14),
-    partialCount:         wordBig(15),
-  };
-}
-
 // ── decodeProposal ────────────────────────────────────────────────────────────
+// Uses getProposalView() (static fields only) + getProposalDescription()
+// (isolated string) instead of proposals() tuple getter.
+// This is the definitive fix for the PolkaVM BUFFER_OVERRUN:
+//   - getProposalView returns a flat tuple of only value types → ethers decodes fine
+//   - getProposalDescription returns a single string → ethers decodes fine
+//   - The mixed static+dynamic tuple from proposals() is never called
 
 async function decodeProposal(contract, provider, proposalId) {
-  const raw = await safeGetProposal(provider, proposalId);
+  // Fetch static fields — all value types, no dynamic encoding issues
+  const v = await contract.getProposalView(proposalId);
 
-  // Reconstruct options from createProposal calldata via the ProposalCreated event tx
+  // Fetch description in isolation — single string return, safe to decode
+  let description = '';
+  try {
+    description = await contract.getProposalDescription(proposalId);
+  } catch (err) {
+    console.warn(`[decodeProposal] getProposalDescription failed for ${proposalId}:`, err.message);
+  }
+
+  // Reconstruct options from the createProposal calldata in the ProposalCreated tx
   let options = [];
   try {
     const filter = contract.filters.ProposalCreated(proposalId);
     const logs   = await contract.queryFilter(filter, 0, 'latest');
     if (logs.length > 0) {
       const tx = await provider.getTransaction(logs[0].transactionHash);
-      if (tx && tx.data) {
-        // Guard: only decode if the 4-byte selector matches createProposal.
-        // If a different tx (e.g. castVote) is returned, skip to avoid BUFFER_OVERRUN.
+      if (tx?.data) {
+        // Selector guard: only decode if this is actually a createProposal tx.
+        // Prevents BUFFER_OVERRUN if a different tx hash is returned.
         const createSel = contract.interface.getFunction('createProposal').selector;
         if (tx.data.slice(0, 10).toLowerCase() === createSel.toLowerCase()) {
           const decoded = contract.interface.decodeFunctionData('createProposal', tx.data);
@@ -279,7 +182,7 @@ async function decodeProposal(contract, provider, proposalId) {
 
   let finalResult = null;
   let winner      = null;
-  if (Number(raw.status) === 3) {
+  if (Number(v.status) === 3) {
     try {
       const res   = await contract.getResult(proposalId);
       finalResult = Array.from(res.tally).map(t => Number(t));
@@ -290,24 +193,24 @@ async function decodeProposal(contract, provider, proposalId) {
   }
 
   return {
-    id:                   raw.id.toString(),
-    creator:              raw.creator,
-    description:          raw.description,
+    id:                   v.id.toString(),
+    creator:              v.creator,
+    description,
     options,
-    votingMode:           MODE_MAP[Number(raw.votingMode)] ?? 'normal',
-    createdAtBlock:       Number(raw.createdAtBlock),
-    duration:             Number(raw.duration),
-    startBlock:           Number(raw.startBlock),
-    endBlock:             Number(raw.endBlock),
-    eligibilityThreshold: Number(raw.eligibilityThreshold),
-    minVoterThreshold:    Number(raw.minVoterThreshold),
-    status:               STATUS_MAP[Number(raw.status)] ?? 'PENDING_DKG',
-    voteCount:            Number(raw.voteCount),
-    totalParticipation:   Number(raw.voteCount),
-    shareCount:           Number(raw.shareCount),
-    partialCount:         Number(raw.partialCount),
-    winningOption:        Number(raw.winningOption),
-    endedAtBlock:         Number(raw.endedAtBlock),
+    votingMode:           MODE_MAP[Number(v.votingMode)] ?? 'normal',
+    createdAtBlock:       Number(v.createdAtBlock),
+    duration:             Number(v.duration),
+    startBlock:           Number(v.startBlock),
+    endBlock:             Number(v.endBlock),
+    eligibilityThreshold: Number(v.eligibilityThreshold),
+    minVoterThreshold:    Number(v.minVoterThreshold),
+    status:               STATUS_MAP[Number(v.status)] ?? 'PENDING_DKG',
+    voteCount:            Number(v.voteCount),
+    totalParticipation:   Number(v.voteCount),
+    shareCount:           Number(v.shareCount),
+    partialCount:         Number(v.partialCount),
+    winningOption:        Number(v.winningOption),
+    endedAtBlock:         Number(v.endedAtBlock),
     finalResult,
     winner,
   };
@@ -649,8 +552,7 @@ export const VotingProvider = ({ children }) => {
       setUsedNullifiers(prev => new Set([...prev, nullifier]));
       setUserVotes(prev => prev.includes(pid) ? prev : [...prev, pid]);
 
-      // Refresh from chain after vote to keep proposals[] consistent.
-      // safeGetProposal is used inside decodeProposal so this is safe.
+      // Refresh from chain — uses getProposalView which is safe on PolkaVM
       try {
         const refreshed = await decodeProposal(
           getReadContract(),
@@ -744,16 +646,18 @@ export const VotingProvider = ({ children }) => {
   const checkEligibility = useCallback(async (proposalId) => {
     if (!userAddress) return false;
     try {
+      const contract = getReadContract();
+      if (!contract) return false;
+      const v = await contract.getProposalView(proposalId);
+      if (Number(v.eligibilityThreshold) === 0) return true;
       const provider = providerRef.current;
       if (!provider) return false;
-      const raw = await safeGetProposal(provider, proposalId);
-      if (Number(raw.eligibilityThreshold) === 0) return true;
       const balance = await provider.getBalance(userAddress);
-      return balance >= raw.eligibilityThreshold;
+      return balance >= v.eligibilityThreshold;
     } catch {
       return false;
     }
-  }, [userAddress]);
+  }, [userAddress, getReadContract]);
 
   // ── getDKGStatus ──────────────────────────────────────────────────────────
 

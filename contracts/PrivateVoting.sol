@@ -774,4 +774,51 @@ contract PrivateVoting {
         }
         return acc;
     }
+
+    
+function getProposalView(uint256 proposalId)
+    external view proposalExists(proposalId)
+    returns (
+        uint256 id,
+        address creator,
+        uint8   votingMode,
+        uint256 createdAtBlock,
+        uint256 duration,
+        uint256 startBlock,
+        uint256 endBlock,
+        uint256 eligibilityThreshold,
+        uint256 minVoterThreshold,
+        uint8   status,
+        uint256 voteCount,
+        uint256 winningOption,
+        uint256 endedAtBlock,
+        uint256 shareCount,
+        uint256 partialCount
+    )
+{
+    Proposal storage p = proposals[proposalId];
+    id                   = p.id;
+    creator              = p.creator;
+    votingMode           = uint8(p.votingMode);
+    createdAtBlock       = p.createdAtBlock;
+    duration             = p.duration;
+    startBlock           = p.startBlock;
+    endBlock             = p.endBlock;
+    eligibilityThreshold = p.eligibilityThreshold;
+    minVoterThreshold    = p.minVoterThreshold;
+    status               = uint8(p.status);
+    voteCount            = p.voteCount;
+    winningOption        = p.winningOption;
+    endedAtBlock         = p.endedAtBlock;
+    shareCount           = p.shareCount;
+    partialCount         = p.partialCount;
+}
+
+// Also add this to get the description string separately (isolated dynamic call):
+function getProposalDescription(uint256 proposalId)
+    external view proposalExists(proposalId)
+    returns (string memory)
+{
+    return proposals[proposalId].description;
+}
 }
