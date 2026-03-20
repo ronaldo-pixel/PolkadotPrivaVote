@@ -3,10 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useVoting } from '../context/VotingContext';
 import ProposalCard from '../components/ProposalCard';
 
-/* ─────────────────────────────────────────────
-   GLOBAL STYLES (inject once at root level or
-   via a CSS-in-JS mechanism of your choice)
-───────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -29,7 +25,6 @@ const GLOBAL_CSS = `
     --font-head:      'Share Tech Mono', 'JetBrains Mono', monospace;
   }
 
-  /* Scanline overlay */
   body::before {
     content: '';
     pointer-events: none;
@@ -45,31 +40,26 @@ const GLOBAL_CSS = `
     );
   }
 
-  /* Card entrance animation */
   @keyframes scanIn {
     from { opacity: 0; transform: translateY(8px); clip-path: inset(100% 0 0 0); }
     to   { opacity: 1; transform: translateY(0);   clip-path: inset(0% 0 0 0); }
   }
 
-  /* Status badge pulse */
   @keyframes glowPulse {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.45; }
   }
 
-  /* Typewriter cursor blink */
   @keyframes blink {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0; }
   }
 
-  /* Horizontal scan sweep */
   @keyframes scanSweep {
     0%   { background-position: -200% center; }
     100% { background-position: 300% center; }
   }
 
-  /* Glitch flicker on hover */
   @keyframes glitch {
     0%  { transform: translateX(0); }
     20% { transform: translateX(-2px); }
@@ -80,9 +70,6 @@ const GLOBAL_CSS = `
   }
 `;
 
-/* ─────────────────────────────────────────────
-   INJECT STYLES
-───────────────────────────────────────────── */
 if (typeof document !== 'undefined') {
   const existing = document.getElementById('cmd-theme-styles');
   if (!existing) {
@@ -93,19 +80,14 @@ if (typeof document !== 'undefined') {
   }
 }
 
-/* ─────────────────────────────────────────────
-   STATUS CONFIG
-───────────────────────────────────────────── */
 const STATUS_CONFIG = {
-  ACTIVE:      { color: 'var(--cyan)',      glow: 'var(--cyan-glow)',  label: 'ACTIVE' },
-  PENDING_DKG: { color: 'var(--amber)',     glow: 'var(--amber-glow)', label: 'PENDING_DKG' },
-  REVEALED:    { color: 'var(--green-phos)',glow: 'var(--green-glow)', label: 'REVEALED' },
-  CANCELLED:   { color: 'var(--red-err)',   glow: '0 0 8px rgba(255,60,60,0.7)', label: 'CANCELLED' },
+  ACTIVE:      { color: 'var(--cyan)',       glow: 'var(--cyan-glow)',   label: 'ACTIVE' },
+  PENDING_DKG: { color: 'var(--amber)',      glow: 'var(--amber-glow)',  label: 'PENDING_DKG' },
+  ENDED:       { color: '#64748b',           glow: 'none',               label: 'ENDED' },
+  REVEALED:    { color: 'var(--green-phos)', glow: 'var(--green-glow)',  label: 'REVEALED' },
+  CANCELLED:   { color: 'var(--red-err)',    glow: '0 0 8px rgba(255,60,60,0.7)', label: 'CANCELLED' },
 };
 
-/* ─────────────────────────────────────────────
-   PROPOSAL CARD (terminal style)
-───────────────────────────────────────────── */
 const TerminalProposalCard = ({ proposal, onVote, index }) => {
   const [hovered, setHovered] = useState(false);
   const [typewriterDone, setTypewriterDone] = useState(false);
@@ -114,7 +96,6 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
 
   const cfg = STATUS_CONFIG[proposal.status] || STATUS_CONFIG.ACTIVE;
 
-  // Typewriter for PENDING_DKG
   useEffect(() => {
     if (proposal.status !== 'PENDING_DKG') return;
     let i = 0;
@@ -150,16 +131,15 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
     fontSize: '0.65rem',
     letterSpacing: '0.15em',
     color: cfg.color,
-    boxShadow: cfg.glow,
+    boxShadow: cfg.glow !== 'none' ? cfg.glow : undefined,
     border: `1px solid ${cfg.color}`,
     padding: '2px 6px',
     borderRadius: '2px',
-    animation: 'glowPulse 2s ease-in-out infinite',
+    animation: ['ACTIVE', 'PENDING_DKG'].includes(proposal.status)
+      ? 'glowPulse 2s ease-in-out infinite' : 'none',
   };
 
-  const truncId = proposal.id
-    ? `#0x${String(proposal.id).padStart(4, '0')}...`
-    : '#0x????';
+  const truncId = `#${String(proposal.id).padStart(4, '0')}`;
 
   return (
     <div
@@ -168,21 +148,18 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
       onMouseLeave={() => setHovered(false)}
       onClick={() => onVote(proposal.id)}
     >
-      {/* Scan sweep overlay on hover */}
       {hovered && (
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none',
-          background: `linear-gradient(90deg, transparent 0%, rgba(0,245,212,0.04) 50%, transparent 100%)`,
+          background: 'linear-gradient(90deg, transparent 0%, rgba(0,245,212,0.04) 50%, transparent 100%)',
           backgroundSize: '200% 100%',
           animation: 'scanSweep 1.2s linear infinite',
           borderRadius: '2px',
         }} />
       )}
 
-      {/* Status badge */}
       <span style={badgeStyle}>[{cfg.label}]</span>
 
-      {/* Proposal ID */}
       <div style={{
         fontFamily: 'var(--font-head)',
         fontSize: '0.7rem',
@@ -193,7 +170,6 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
         PROPOSAL {truncId}
       </div>
 
-      {/* Title */}
       <div style={{
         fontFamily: 'var(--font-head)',
         fontSize: '1rem',
@@ -203,10 +179,11 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
         lineHeight: 1.4,
         animation: hovered ? 'glitch 0.15s ease' : 'none',
       }}>
-        {proposal.title || 'Untitled Proposal'}
+        {proposal.description
+          ? proposal.description.slice(0, 60) + (proposal.description.length > 60 ? '...' : '')
+          : 'No description provided.'}
       </div>
 
-      {/* Description */}
       <div style={{
         fontSize: '0.78rem',
         color: 'var(--text-secondary)',
@@ -217,10 +194,12 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
         WebkitBoxOrient: 'vertical',
         overflow: 'hidden',
       }}>
-        {proposal.description || 'No description provided.'}
+        {proposal.options?.length
+          ? proposal.options.slice(0, 3).map((o, i) => `[${i + 1}] ${o}`).join('  ')
+          : 'no options'}
+        {proposal.options?.length > 3 ? `  +${proposal.options.length - 3} more` : ''}
       </div>
 
-      {/* PENDING_DKG typewriter */}
       {proposal.status === 'PENDING_DKG' && (
         <div style={{
           fontSize: '0.7rem',
@@ -241,7 +220,18 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
         </div>
       )}
 
-      {/* Footer row */}
+      {proposal.status === 'REVEALED' && proposal.winner && (
+        <div style={{
+          fontSize: '0.7rem',
+          color: 'var(--green-phos)',
+          marginBottom: '0.75rem',
+          fontFamily: 'var(--font-mono)',
+          letterSpacing: '0.06em',
+        }}>
+          &gt; winner: {proposal.winner}
+        </div>
+      )}
+
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -251,12 +241,10 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
         marginTop: '0.25rem',
       }}>
         <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>
-          {proposal.options?.length
-            ? `${proposal.options.length} OPTIONS`
-            : 'NO OPTIONS'}
-          {proposal.endTime && (
-            <span style={{ marginLeft: '1rem' }}>
-              ENDS {new Date(proposal.endTime).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()}
+          {proposal.options?.length ? `${proposal.options.length} OPTIONS` : 'NO OPTIONS'}
+          {proposal.voteCount > 0 && (
+            <span style={{ marginLeft: '0.75rem' }}>
+              {proposal.voteCount} VOTES
             </span>
           )}
         </div>
@@ -276,8 +264,8 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
             transition: 'background 0.15s, box-shadow 0.15s',
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = `rgba(0,245,212,0.08)`;
-            e.currentTarget.style.boxShadow = cfg.glow;
+            e.currentTarget.style.background = 'rgba(0,245,212,0.08)';
+            e.currentTarget.style.boxShadow = cfg.glow !== 'none' ? cfg.glow : 'none';
           }}
           onMouseLeave={e => {
             e.currentTarget.style.background = 'transparent';
@@ -291,14 +279,11 @@ const TerminalProposalCard = ({ proposal, onVote, index }) => {
   );
 };
 
-/* ─────────────────────────────────────────────
-   EMPTY STATE
-───────────────────────────────────────────── */
-const EmptyState = ({ userAddress, onCreate }) => {
+const EmptyState = ({ userAddress, onCreate, filterStatus }) => {
   const [line, setLine] = useState(0);
   const lines = [
     '> scanning blockchain...',
-    '> no active proposals found.',
+    `> no ${filterStatus === 'all' ? '' : filterStatus + ' '}proposals found.`,
     '> terminal ready.',
   ];
 
@@ -337,9 +322,9 @@ const EmptyState = ({ userAddress, onCreate }) => {
         marginBottom: '1.5rem',
         letterSpacing: '0.08em',
       }}>
-        NO ACTIVE PROPOSALS ─────────── CHECK BACK SOON
+        NO RESULTS ─────────── CHECK BACK SOON
       </div>
-      {userAddress && (
+      {userAddress && filterStatus === 'all' && (
         <button
           onClick={onCreate}
           style={{
@@ -361,47 +346,47 @@ const EmptyState = ({ userAddress, onCreate }) => {
   );
 };
 
-/* ─────────────────────────────────────────────
-   MAIN COMPONENT
-───────────────────────────────────────────── */
 const ProposalList = () => {
   const navigate = useNavigate();
-  const { proposals, getActiveProposals, initializeProposals, userAddress } = useVoting();
+  const { proposals, initializeProposals, userAddress } = useVoting();
   const [filterStatus, setFilterStatus] = useState('all');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    initializeProposals();
-    setLoading(false);
+    initializeProposals().finally(() => setLoading(false));
   }, [initializeProposals]);
 
-  let displayProposals = getActiveProposals();
-  if (filterStatus === 'pending') {
-    displayProposals = displayProposals.filter((p) => p.status === 'PENDING_DKG');
-  } else if (filterStatus === 'active') {
-    displayProposals = displayProposals.filter((p) => p.status === 'ACTIVE');
-  }
+  const filterTabs = [
+    { value: 'all',       label: 'ALL' },
+    { value: 'pending',   label: 'PENDING DKG' },
+    { value: 'active',    label: 'VOTING OPEN' },
+    { value: 'ended',     label: 'ENDED' },
+    { value: 'revealed',  label: 'REVEALED' },
+    { value: 'cancelled', label: 'CANCELLED' },
+  ];
+
+  const STATUS_FILTER_MAP = {
+    all:       () => true,
+    pending:   p => p.status === 'PENDING_DKG',
+    active:    p => p.status === 'ACTIVE',
+    ended:     p => p.status === 'ENDED',
+    revealed:  p => p.status === 'REVEALED',
+    cancelled: p => p.status === 'CANCELLED',
+  };
+
+  const displayProposals = proposals.filter(STATUS_FILTER_MAP[filterStatus] ?? (() => true));
 
   const handleVote = (proposalId) => navigate(`/proposal/${proposalId}`);
-
-  const filterTabs = [
-    { value: 'all',     label: 'ALL ACTIVE' },
-    { value: 'pending', label: 'PENDING DKG' },
-    { value: 'active',  label: 'VOTING OPEN' },
-  ];
 
   return (
     <div style={{
       fontFamily: 'var(--font-mono)',
       background: 'var(--bg-base)',
       minHeight: '100vh',
-      padding: '0',
-      /* Left terminal gutter line */
       borderLeft: '2px solid rgba(0, 245, 212, 0.12)',
     }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 2rem' }}>
 
-        {/* ── BREADCRUMB NAV ── */}
         <div style={{
           fontFamily: 'var(--font-head)',
           fontSize: '0.7rem',
@@ -421,7 +406,6 @@ const ProposalList = () => {
           }} />
         </div>
 
-        {/* ── HEADER ── */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -447,7 +431,8 @@ const ProposalList = () => {
               marginTop: '0.35rem',
               letterSpacing: '0.08em',
             }}>
-              {displayProposals.length} RESULT{displayProposals.length !== 1 ? 'S' : ''} ── ON-CHAIN GOVERNANCE
+              {displayProposals.length} RESULT{displayProposals.length !== 1 ? 'S' : ''}
+              {' '}of {proposals.length} TOTAL ── ON-CHAIN GOVERNANCE
             </div>
           </div>
 
@@ -481,7 +466,6 @@ const ProposalList = () => {
           )}
         </div>
 
-        {/* Horizontal rule */}
         <div style={{
           fontFamily: 'var(--font-mono)',
           fontSize: '0.65rem',
@@ -495,40 +479,43 @@ const ProposalList = () => {
           {'─'.repeat(120)}
         </div>
 
-        {/* ── FILTER TABS ── */}
         <div style={{
           display: 'flex',
+          flexWrap: 'wrap',
           gap: '0',
           marginBottom: '2rem',
           borderBottom: '1px solid var(--border-base)',
         }}>
           {filterTabs.map(tab => {
             const isActive = filterStatus === tab.value;
+            const count = tab.value === 'all'
+              ? proposals.length
+              : proposals.filter(STATUS_FILTER_MAP[tab.value]).length;
             return (
               <button
                 key={tab.value}
                 onClick={() => setFilterStatus(tab.value)}
                 style={{
                   fontFamily: 'var(--font-head)',
-                  fontSize: '0.65rem',
-                  letterSpacing: '0.15em',
-                  color: isActive ? 'var(--cyan)' : 'var(--text-secondary)',
+                  fontSize: '0.62rem',
+                  letterSpacing: '0.12em',
+                  color: isActive ? 'var(--cyan)' : count === 0 ? 'var(--border-base)' : 'var(--text-secondary)',
                   background: 'transparent',
                   border: 'none',
                   borderBottom: isActive ? '2px solid var(--cyan)' : '2px solid transparent',
                   marginBottom: '-1px',
-                  padding: '8px 16px',
-                  cursor: 'pointer',
+                  padding: '8px 14px',
+                  cursor: count === 0 && !isActive ? 'default' : 'pointer',
                   transition: 'color 0.15s',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                [{tab.label}]
+                [{tab.label}]{count > 0 ? ` ${count}` : ''}
               </button>
             );
           })}
         </div>
 
-        {/* ── CONTENT ── */}
         {loading ? (
           <div style={{
             display: 'flex',
@@ -538,7 +525,6 @@ const ProposalList = () => {
             padding: '5rem 0',
             gap: '1rem',
           }}>
-            {/* ASCII spinner substitute — scanning bar */}
             <div style={{
               width: '240px',
               height: '3px',
@@ -581,10 +567,13 @@ const ProposalList = () => {
             ))}
           </div>
         ) : (
-          <EmptyState userAddress={userAddress} onCreate={() => navigate('/create-proposal')} />
+          <EmptyState
+            userAddress={userAddress}
+            onCreate={() => navigate('/create-proposal')}
+            filterStatus={filterStatus}
+          />
         )}
 
-        {/* ── BOTTOM RULE ── */}
         <div style={{
           fontFamily: 'var(--font-mono)',
           fontSize: '0.65rem',
@@ -603,7 +592,7 @@ const ProposalList = () => {
           marginTop: '0.5rem',
           letterSpacing: '0.08em',
         }}>
-          &gt; {displayProposals.length} proposal{displayProposals.length !== 1 ? 's' : ''} displayed
+          &gt; {displayProposals.length} of {proposals.length} proposal{proposals.length !== 1 ? 's' : ''} displayed
           &nbsp;·&nbsp; system nominal
         </div>
       </div>
